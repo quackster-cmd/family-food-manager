@@ -46,25 +46,22 @@ def delete_profile(name):
             json.dump(profiles, f, indent=4)
     return profiles
 
-# --- SESSION STATE LOGIK (DER FIX) ---
+# --- SESSION STATE LOGIK ---
 if 'selected_profile_key' not in st.session_state:
     st.session_state.selected_profile_key = "Neues Profil erstellen"
 
-# HIER IST DER FIX: Wir prüfen VOR dem Zeichnen der Sidebar, ob wir wechseln müssen
 if 'profile_to_select' in st.session_state:
     st.session_state.selected_profile_key = st.session_state.profile_to_select
-    del st.session_state.profile_to_select # "Zwischenablage" löschen
+    del st.session_state.profile_to_select
 
 # --- UI: SEITENLEISTE ---
 with st.sidebar:
     st.header("👤 Profil-Verwaltung")
     profiles = load_profiles()
-    # Alphabetisch sortieren
     profile_names = sorted(list(profiles.keys()))
     
     optionen = ["Neues Profil erstellen"] + profile_names
     
-    # Fallback, falls gelöschtes Profil noch ausgewählt war
     if st.session_state.selected_profile_key not in optionen:
         st.session_state.selected_profile_key = "Neues Profil erstellen"
 
@@ -78,7 +75,6 @@ with st.sidebar:
         st.divider()
         if st.button(f"🗑️ Profil '{selected_profile_name}' löschen"):
             delete_profile(selected_profile_name)
-            # Auch beim Löschen nutzen wir den Trick:
             st.session_state.profile_to_select = "Neues Profil erstellen"
             st.rerun()
 
@@ -116,32 +112,38 @@ with st.expander("⚙️ Profil-Einstellungen & Presets bearbeiten", expanded=is
         diaet_optionen = sorted(["Ausgewogen (Alles)", "Vegetarisch", "Vegan", "Ohne Schwein", "Glutenfrei", "Laktosefrei", "Pescatarier", "Low Carb", "Keto"])
         vermeiden_optionen = sorted(["Nüsse", "Eier", "Soja", "Pilze", "Oliven", "Fisch", "Tomaten", "Koriander", "Meeresfrüchte", "Paprika", "Zwiebeln", "Knoblauch"])
         
-        # Mehrfachauswahl Logik (Repair)
         saved_diaet = current_data.get("diaet", ["Ausgewogen (Alles)"])
-        if isinstance(saved_diaet, str): 
-            saved_diaet = [saved_diaet]
+        if isinstance(saved_diaet, str): saved_diaet = [saved_diaet]
             
         p_diaet = st.multiselect("Ernährungsweise (Mehrfachwahl):", diaet_optionen, default=saved_diaet)
         
-        p_vermeiden = st.multiselect(
-            "Zutaten vermeiden:",
-            vermeiden_optionen,
-            default=current_data.get("vermeiden", [])
-        )
+        # MIX AUS CHECKBOX UND TEXTFELD
+        col_avoid1, col_avoid2 = st.columns(2)
+        with col_avoid1:
+            p_vermeiden_select = st.multiselect(
+                "Zutaten vermeiden (Auswahl):",
+                vermeiden_optionen,
+                default=current_data.get("vermeiden_select", [])
+            )
+        with col_avoid2:
+            # Freitextfeld laden (Fallback leerer String)
+            default_text_avoid = current_data.get("vermeiden_text", "")
+            p_vermeiden_text = st.text_input("Sonstiges vermeiden (Freitext):", value=default_text_avoid, placeholder="z.B. Kümmel, Innereien...")
 
-        st.write("### 4. Geräte & Ziele")
+        st.write("### 4. Haushalt & Ziele")
         geraete_liste = sorted(["Backofen", "Mikrowelle", "Mixer", "Herd", "Air Fryer", "Thermomix", "Slow Cooker", "Dampfgarer", "Grill"])
-        p_geraete = st.multiselect("Geräte:", geraete_liste, default=current_data.get("geraete", ["Backofen", "Herd"]))
+        p_geraete = st.multiselect("Geräte im Haushalt:", geraete_liste, default=current_data.get("geraete", ["Backofen", "Herd"]))
 
         ziele_liste = sorted(["Geld sparen", "Weniger Fleisch", "Leichte Küche", "Neue Rezepte entdecken", "Proteinreich (Sport)", "Einkäufe minimieren", "Schnelle Küche (<20 Min)"])
-        p_ziele = st.multiselect("Standard-Ziele:", ziele_liste, default=current_data.get("ziele", ["Geld sparen"]))
+        p_ziele = st.multiselect("Ernährungsziele:", ziele_liste, default=current_data.get("ziele", ["Geld sparen"]))
         
         supermarkt_liste = sorted(["Aldi", "Lidl", "Rewe", "Edeka", "Marktkauf", "Hit", "Netto", "Penny", "Kaufland", "DM/Rossmann"])
         p_shops = st.multiselect("Supermärkte:", supermarkt_liste, default=current_data.get("shops", ["Aldi", "Rewe"]))
 
-        st.write("### 5. Vorrat (Immer da)")
+        st.write("### 5. Ständiger Vorrat")
+        st.caption("Eiserner Vorrat (wird von KI vorausgesetzt):")
         vorrat_default = "Nudeln, Reis, Salz, Pfeffer, Öl, Mehl, Zucker, Gewürze"
-        p_vorrat = st.text_area("Eiserner Vorrat:", current_data.get("vorrat", vorrat_default))
+        p_vorrat = st.text_area("Vorrat:", current_data.get("vorrat", vorrat_default), label_visibility="collapsed")
 
         # Speichern Button
         submitted = st.form_submit_button("💾 Profil Speichern")
@@ -156,7 +158,8 @@ with st.expander("⚙️ Profil-Einstellungen & Presets bearbeiten", expanded=is
                     "kinder_unter3": p_kinder_unter3,
                     "besonderheiten": p_besonderheiten,
                     "diaet": p_diaet,
-                    "vermeiden": p_vermeiden,
+                    "vermeiden_select": p_vermeiden_select, # Liste aus Box
+                    "vermeiden_text": p_vermeiden_text,     # Text aus Feld
                     "geraete": p_geraete,
                     "ziele": p_ziele,
                     "shops": p_shops,
@@ -164,7 +167,6 @@ with st.expander("⚙️ Profil-Einstellungen & Presets bearbeiten", expanded=is
                 }
                 save_profile(profile_name_input, new_profile_data)
                 
-                # DER FIX: Wir schreiben in die Zwischenablage und laden neu
                 st.session_state.profile_to_select = profile_name_input
                 st.success(f"Profil '{profile_name_input}' gespeichert!")
                 st.rerun()
@@ -184,15 +186,22 @@ if not is_new_profile:
     st.subheader("📸 Uploads (Optional)")
     upload_cols = st.columns(2)
     kuehlschrank_img = upload_cols[0].file_uploader("Kühlschrank Foto", type=["jpg", "png", "jpeg"])
-    prospekt_files = upload_cols[1].file_uploader("Prospekte (Bilder)", type=["jpg", "png", "jpeg"], accept_multiple_files=True)
+    prospekt_files = upload_cols[1].file_uploader("Werbeprospekte (Bilder)", type=["jpg", "png", "jpeg"], accept_multiple_files=True)
 
     generate_btn = st.button("🚀 Plan erstellen")
 
     if generate_btn:
         with st.spinner("KI analysiert Profil, Vorrat, Prospekte und Wünsche..."):
             
+            # --- DATEN VORBEREITEN ---
             diaet_str = ", ".join(current_data['diaet']) if isinstance(current_data['diaet'], list) else current_data['diaet']
             
+            # Zutaten vermeiden: Kombiniere Liste und Freitext
+            vermeiden_liste = current_data.get('vermeiden_select', [])
+            if current_data.get('vermeiden_text'):
+                vermeiden_liste.append(current_data.get('vermeiden_text'))
+            vermeiden_str = ", ".join(vermeiden_liste)
+
             prompt = f"""
             Du bist der 'Food & Family Manager' - ein intelligenter KI-Koch.
             
@@ -200,11 +209,11 @@ if not is_new_profile:
             - Personen: {current_data['erwachsene']} Erw, {current_data['kinder_ueber3']} Kinder (>3), {current_data['kinder_unter3']} Kinder (<3).
             - WICHTIGE BESONDERHEITEN: {current_data.get('besonderheiten', 'Keine')}
             - Ernährung: {diaet_str}
-            - No-Gos: {', '.join(current_data['vermeiden'])}
-            - Geräte: {', '.join(current_data['geraete'])}
+            - No-Gos (Vermeiden): {vermeiden_str}
+            - Geräte im Haushalt: {', '.join(current_data['geraete'])}
             - Supermärkte: {', '.join(current_data['shops'])}
-            - VORRAT (NICHT KAUFEN): {current_data['vorrat']}
-            - Standard-Ziele: {', '.join(current_data['ziele'])}
+            - STÄNDIGER VORRAT (NICHT KAUFEN): {current_data['vorrat']}
+            - Ernährungsziele: {', '.join(current_data['ziele'])}
             
             2. AKTUELLE WOCHE:
             - Zeitlimit: {zeit_input} Min
@@ -232,13 +241,17 @@ if not is_new_profile:
                     try:
                         p_img = Image.open(p_file)
                         content_parts.append(p_img)
-                        content_parts.append("Supermarkt-Angebot")
+                        content_parts.append("Werbeprospekt")
                     except:
                         pass 
 
             try:
-                model = genai.GenerativeModel('gemini-1.5-flash')
+                # MODELL UPDATE: Wir nutzen jetzt explizit gemini-2.5-flash
+                # oder alternativ 'gemini-1.5-pro' falls Flash zickt.
+                # Wir bleiben bei 2.5 da du es in der Liste hattest.
+                model = genai.GenerativeModel('gemini-2.5-flash')
                 response = model.generate_content(content_parts)
                 st.markdown(response.text)
             except Exception as e:
                 st.error(f"Fehler: {e}")
+                st.info("Tipp: Falls Error 404 kommt, update bitte requirements.txt auf 'google-generativeai>=0.8.3'")
