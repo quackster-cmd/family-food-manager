@@ -3,6 +3,7 @@ import google.generativeai as genai
 from PIL import Image
 import json
 import os
+import datetime
 
 # --- KONFIGURATION ---
 st.set_page_config(page_title="Food & Family Manager", page_icon="🥦", layout="wide")
@@ -19,34 +20,58 @@ except Exception as e:
     st.error(f"🚨 Fehler beim Laden des Keys: {e}")
     st.stop()
 
-# --- DATEN-MANAGEMENT ---
+# --- DATEI-MANAGEMENT ---
 PROFILE_FILE = "user_profiles.json"
+PLANS_FILE = "weekly_plans.json"
 
-def load_profiles():
-    if not os.path.exists(PROFILE_FILE):
+def load_json(filename):
+    if not os.path.exists(filename):
         return {}
     try:
-        with open(PROFILE_FILE, "r") as f:
+        with open(filename, "r") as f:
             return json.load(f)
     except json.JSONDecodeError:
         return {}
 
+def save_json(filename, data):
+    with open(filename, "w") as f:
+        json.dump(data, f, indent=4)
+
 def save_profile(name, data):
-    profiles = load_profiles()
+    profiles = load_json(PROFILE_FILE)
     profiles[name] = data
-    with open(PROFILE_FILE, "w") as f:
-        json.dump(profiles, f, indent=4)
-    return profiles
+    save_json(PROFILE_FILE, profiles)
 
 def delete_profile(name):
-    profiles = load_profiles()
+    profiles = load_json(PROFILE_FILE)
     if name in profiles:
         del profiles[name]
-        with open(PROFILE_FILE, "w") as f:
-            json.dump(profiles, f, indent=4)
-    return profiles
+        save_json(PROFILE_FILE, profiles)
 
-# --- SESSION STATE LOGIK ---
+def save_week_plan(profile_name, week_key, plan_text):
+    plans = load_json(PLANS_FILE)
+    if profile_name not in plans:
+        plans[profile_name] = {}
+    plans[profile_name][week_key] = plan_text
+    save_json(PLANS_FILE, plans)
+
+def get_week_plan(profile_name, week_key):
+    plans = load_json(PLANS_FILE)
+    return plans.get(profile_name, {}).get(week_key, None)
+
+def delete_week_plan(profile_name, week_key):
+    plans = load_json(PLANS_FILE)
+    if profile_name in plans and week_key in plans[profile_name]:
+        del plans[profile_name][week_key]
+        save_json(PLANS_FILE, plans)
+
+# --- HILFSFUNKTIONEN ---
+def get_current_week_info():
+    today = datetime.date.today()
+    year, week, _ = today.isocalendar()
+    return year, week
+
+# --- SESSION STATE INITIALISIERUNG ---
 if 'selected_profile_key' not in st.session_state:
     st.session_state.selected_profile_key = "Neues Profil erstellen"
 
@@ -54,29 +79,54 @@ if 'profile_to_select' in st.session_state:
     st.session_state.selected_profile_key = st.session_state.profile_to_select
     del st.session_state.profile_to_select
 
-# --- UI: SEITENLEISTE ---
+# --- UI: SEITENLEISTE (PROFIL & WOCHE) ---
 with st.sidebar:
-    st.header("👤 Profil-Verwaltung")
-    profiles = load_profiles()
-    profile_names = sorted(list(profiles.keys()))
+    st.header("👤 Einstellungen")
     
+    # 1. Profilwahl
+    profiles = load_json(PROFILE_FILE)
+    profile_names = sorted(list(profiles.keys()))
     optionen = ["Neues Profil erstellen"] + profile_names
     
     if st.session_state.selected_profile_key not in optionen:
         st.session_state.selected_profile_key = "Neues Profil erstellen"
 
     selected_profile_name = st.selectbox(
-        "Aktives Profil wählen", 
+        "Profil wählen", 
         optionen,
         key="selected_profile_key"
     )
 
+    # 2. Wochenwahl (Nur wenn Profil existiert)
+    current_year, current_week = get_current_week_info()
+    selected_week_label = "Keine"
+    week_key = "none"
+    
     if selected_profile_name != "Neues Profil erstellen":
         st.divider()
-        if st.button(f"🗑️ Profil '{selected_profile_name}' löschen"):
-            delete_profile(selected_profile_name)
-            st.session_state.profile_to_select = "Neues Profil erstellen"
-            st.rerun()
+        st.subheader("📅 Woche auswählen")
+        
+        # Wir bieten aktuelle und nächste Woche an
+        w1_label = f"KW {current_week} (Aktuell)"
+        w2_label = f"KW {current_week + 1} (Nächste)"
+        w3_label = f"KW {current_week + 2} (Übernächste)"
+        
+        selected_week_label = st.radio("Für welche Woche planen?", [w1_label, w2_label, w3_label])
+        
+        # Key generieren z.B. "2024-W07"
+        week_num = current_week
+        if "Nächste" in selected_week_label: week_num += 1
+        if "Übernächste" in selected_week_label: week_num += 2
+        
+        week_key = f"{current_year}-W{week_num}"
+        
+        # Profil Löschen Button ganz unten
+        st.divider()
+        with st.expander("Gefahrenzone"):
+            if st.button(f"🗑️ Profil löschen"):
+                delete_profile(selected_profile_name)
+                st.session_state.profile_to_select = "Neues Profil erstellen"
+                st.rerun()
 
 # --- UI: HAUPTBEREICH ---
 st.title("🥦 Food & Family Manager")
@@ -84,174 +134,165 @@ st.title("🥦 Food & Family Manager")
 current_data = {}
 is_new_profile = (selected_profile_name == "Neues Profil erstellen")
 
+# === FALL A: NEUES PROFIL ANLEGEN ===
 if is_new_profile:
-    st.info("🆕 Lege hier dein Basis-Profil an.")
+    st.info("🆕 Bitte erstelle zuerst ein Profil, bevor du planen kannst.")
     profile_name_input = st.text_input("Name des Profils", "Meine Familie")
 else:
     current_data = profiles[selected_profile_name]
     profile_name_input = selected_profile_name
-    st.success(f"✅ Profil **{selected_profile_name}** ist aktiv.")
 
-# --- PRESET-FORMULAR ---
-with st.expander("⚙️ Profil-Einstellungen & Presets bearbeiten", expanded=is_new_profile):
-    
+# === PROFIL BEARBEITEN (EXPANDER) ===
+# Wir klappen es automatisch zu, wenn es nicht neu ist
+with st.expander("⚙️ Profil-Einstellungen bearbeiten", expanded=is_new_profile):
     with st.form("preset_form"):
         st.write("### 1. Wer isst mit?")
-        col1, col2, col3 = st.columns(3)
-        p_erwachsene = col1.number_input("Erwachsene", 1, 10, current_data.get("erwachsene", 2))
-        p_kinder_ueber3 = col2.number_input("Kinder (>3 Jahre)", 0, 10, current_data.get("kinder_ueber3", 0))
-        p_kinder_unter3 = col3.number_input("Kinder (<3 Jahre)", 0, 10, current_data.get("kinder_unter3", 0))
+        c1, c2, c3 = st.columns(3)
+        p_erw = c1.number_input("Erwachsene", 1, 10, current_data.get("erwachsene", 2))
+        p_k3 = c2.number_input("Kinder (>3)", 0, 10, current_data.get("kinder_ueber3", 0))
+        p_ku3 = c3.number_input("Kinder (<3)", 0, 10, current_data.get("kinder_unter3", 0))
 
-        st.write("### 2. Dauerhafte Besonderheiten")
-        st.caption("Infos, die IMMER gelten (z.B. 'Baby 8M isst Brei', 'Papa Keto').")
-        default_besonderheiten = current_data.get("besonderheiten", "Baby (8 Monate) bekommt Beikost/Brei.")
-        p_besonderheiten = st.text_area("Profil-Details:", default_besonderheiten)
-
-        st.write("### 3. Ernährung & Ausschluss")
+        st.write("### 2. Besonderheiten & Ernährung")
+        p_details = st.text_area("Dauerhafte Infos (z.B. 'Baby isst Brei'):", current_data.get("besonderheiten", ""))
         
-        diaet_optionen = sorted(["Ausgewogen (Alles)", "Vegetarisch", "Vegan", "Ohne Schwein", "Glutenfrei", "Laktosefrei", "Pescatarier", "Low Carb", "Keto"])
-        vermeiden_optionen = sorted(["Nüsse", "Eier", "Soja", "Pilze", "Oliven", "Fisch", "Tomaten", "Koriander", "Meeresfrüchte", "Paprika", "Zwiebeln", "Knoblauch"])
-        
+        diaet_opts = sorted(["Ausgewogen (Alles)", "Vegetarisch", "Vegan", "Ohne Schwein", "Glutenfrei", "Laktosefrei", "Pescatarier", "Low Carb", "Keto"])
         saved_diaet = current_data.get("diaet", ["Ausgewogen (Alles)"])
         if isinstance(saved_diaet, str): saved_diaet = [saved_diaet]
-            
-        p_diaet = st.multiselect("Ernährungsweise (Mehrfachwahl):", diaet_optionen, default=saved_diaet)
+        p_diaet = st.multiselect("Ernährung:", diaet_opts, default=saved_diaet)
+
+        col_av1, col_av2 = st.columns(2)
+        verm_opts = sorted(["Nüsse", "Eier", "Soja", "Pilze", "Oliven", "Fisch", "Tomaten", "Paprika", "Zwiebeln"])
+        p_verm_sel = col_av1.multiselect("Vermeiden (Auswahl):", verm_opts, default=current_data.get("vermeiden_select", []))
+        p_verm_txt = col_av2.text_input("Vermeiden (Freitext):", value=current_data.get("vermeiden_text", ""))
+
+        st.write("### 3. Haushalt & Vorrat")
+        geraete_opts = sorted(["Backofen", "Mikrowelle", "Mixer", "Herd", "Air Fryer", "Thermomix", "Slow Cooker", "Grill"])
+        p_geraete = st.multiselect("Geräte:", geraete_opts, default=current_data.get("geraete", ["Backofen", "Herd"]))
         
-        # MIX AUS CHECKBOX UND TEXTFELD
-        col_avoid1, col_avoid2 = st.columns(2)
-        with col_avoid1:
-            p_vermeiden_select = st.multiselect(
-                "Zutaten vermeiden (Auswahl):",
-                vermeiden_optionen,
-                default=current_data.get("vermeiden_select", [])
-            )
-        with col_avoid2:
-            # Freitextfeld laden (Fallback leerer String)
-            default_text_avoid = current_data.get("vermeiden_text", "")
-            p_vermeiden_text = st.text_input("Sonstiges vermeiden (Freitext):", value=default_text_avoid, placeholder="z.B. Kümmel, Innereien...")
-
-        st.write("### 4. Haushalt & Ziele")
-        geraete_liste = sorted(["Backofen", "Mikrowelle", "Mixer", "Herd", "Air Fryer", "Thermomix", "Slow Cooker", "Dampfgarer", "Grill"])
-        p_geraete = st.multiselect("Geräte im Haushalt:", geraete_liste, default=current_data.get("geraete", ["Backofen", "Herd"]))
-
-        ziele_liste = sorted(["Geld sparen", "Weniger Fleisch", "Leichte Küche", "Neue Rezepte entdecken", "Proteinreich (Sport)", "Einkäufe minimieren", "Schnelle Küche (<20 Min)"])
-        p_ziele = st.multiselect("Ernährungsziele:", ziele_liste, default=current_data.get("ziele", ["Geld sparen"]))
+        ziele_opts = sorted(["Geld sparen", "Weniger Fleisch", "Schnelle Küche (<20 Min)", "Proteinreich", "Einkäufe minimieren"])
+        p_ziele = st.multiselect("Ziele:", ziele_opts, default=current_data.get("ziele", ["Geld sparen"]))
         
-        supermarkt_liste = sorted(["Aldi", "Lidl", "Rewe", "Edeka", "Marktkauf", "Hit", "Netto", "Penny", "Kaufland", "DM/Rossmann"])
-        p_shops = st.multiselect("Supermärkte:", supermarkt_liste, default=current_data.get("shops", ["Aldi", "Rewe"]))
-
-        st.write("### 5. Ständiger Vorrat")
-        st.caption("Eiserner Vorrat (wird von KI vorausgesetzt):")
-        vorrat_default = "Nudeln, Reis, Salz, Pfeffer, Öl, Mehl, Zucker, Gewürze"
-        p_vorrat = st.text_area("Vorrat:", current_data.get("vorrat", vorrat_default), label_visibility="collapsed")
-
-        # Speichern Button
-        submitted = st.form_submit_button("💾 Profil Speichern")
+        shop_opts = sorted(["Aldi", "Lidl", "Rewe", "Edeka", "Netto", "Penny", "Kaufland", "DM"])
+        p_shops = st.multiselect("Supermärkte:", shop_opts, default=current_data.get("shops", ["Aldi", "Rewe"]))
         
-        if submitted:
+        p_vorrat = st.text_area("Ständiger Vorrat:", current_data.get("vorrat", "Nudeln, Reis, Salz, Pfeffer, Öl, Mehl, Zucker"))
+
+        if st.form_submit_button("💾 Profil Speichern"):
             if not profile_name_input:
-                st.error("Bitte gib dem Profil einen Namen!")
+                st.error("Name fehlt!")
             else:
-                new_profile_data = {
-                    "erwachsene": p_erwachsene,
-                    "kinder_ueber3": p_kinder_ueber3,
-                    "kinder_unter3": p_kinder_unter3,
-                    "besonderheiten": p_besonderheiten,
-                    "diaet": p_diaet,
-                    "vermeiden_select": p_vermeiden_select, # Liste aus Box
-                    "vermeiden_text": p_vermeiden_text,     # Text aus Feld
-                    "geraete": p_geraete,
-                    "ziele": p_ziele,
-                    "shops": p_shops,
-                    "vorrat": p_vorrat
+                new_data = {
+                    "erwachsene": p_erw, "kinder_ueber3": p_k3, "kinder_unter3": p_ku3,
+                    "besonderheiten": p_details, "diaet": p_diaet,
+                    "vermeiden_select": p_verm_sel, "vermeiden_text": p_verm_txt,
+                    "geraete": p_geraete, "ziele": p_ziele, "shops": p_shops, "vorrat": p_vorrat
                 }
-                save_profile(profile_name_input, new_profile_data)
-                
+                save_profile(profile_name_input, new_data)
                 st.session_state.profile_to_select = profile_name_input
-                st.success(f"Profil '{profile_name_input}' gespeichert!")
                 st.rerun()
 
-# --- PLANER ---
+# === FALL B: PLANUNG (NUR WENN PROFIL GEWÄHLT) ===
 if not is_new_profile:
     st.divider()
-    st.header(f"📅 Planung für: {selected_profile_name}")
     
-    col_input1, col_input2 = st.columns(2)
-    with col_input1:
-        zeit_input = st.slider("Zeit pro Tag (Min)?", 0, 120, 30, step=5)
-        wochen_besonderheit = st.text_input("Was steht diese Woche an?", "Samstag Grillen, Sonntag Oma zu Besuch")
-    with col_input2:
-        manuelle_reste = st.text_area("Reste / Aktuelle Gelüste:", "Paprika muss weg, Lust auf Nudeln")
+    # Prüfen: Gibt es schon einen Plan für diese Woche?
+    existing_plan = get_week_plan(selected_profile_name, week_key)
+    
+    if existing_plan:
+        # --- ANSICHT: PLAN IST EINGELOGGT ---
+        st.success(f"🔒 Plan für **{selected_week_label}** ist eingeloggt!")
+        
+        col_btn1, col_btn2 = st.columns([1, 4])
+        if col_btn1.button("🗑️ Plan löschen"):
+            delete_week_plan(selected_profile_name, week_key)
+            st.rerun()
+        
+        st.markdown("---")
+        st.markdown(existing_plan)
+        
+    else:
+        # --- ANSICHT: PLANER (NOCH NICHTS GESPEICHERT) ---
+        st.header(f"🧑‍🍳 Planung erstellen: {selected_week_label}")
+        
+        with st.expander("📝 Planungsvorgaben (Hier klicken zum Ändern)", expanded=True):
+            col_in1, col_in2 = st.columns(2)
+            zeit_input = col_in1.slider("Zeit pro Tag (Min)?", 0, 120, 30, step=5)
+            wochen_besonderheit = col_in1.text_input("Events diese Woche?", "Keine besonderen Events")
+            manuelle_reste = col_in2.text_area("Reste / Wünsche:", "Alles offen")
+            
+            st.write("📸 Uploads (Optional)")
+            c_up1, c_up2 = st.columns(2)
+            kuehlschrank_img = c_up1.file_uploader("Kühlschrank", type=["jpg", "png", "jpeg"])
+            prospekt_files = c_up2.file_uploader("Prospekte", type=["jpg", "png", "jpeg"], accept_multiple_files=True)
 
-    st.subheader("📸 Uploads (Optional)")
-    upload_cols = st.columns(2)
-    kuehlschrank_img = upload_cols[0].file_uploader("Kühlschrank Foto", type=["jpg", "png", "jpeg"])
-    prospekt_files = upload_cols[1].file_uploader("Werbeprospekte (Bilder)", type=["jpg", "png", "jpeg"], accept_multiple_files=True)
+        generate_btn = st.button("🚀 Plan generieren (Vorschau)")
 
-    generate_btn = st.button("🚀 Plan erstellen")
+        # Logik: Wenn Button gedrückt ODER wir schon ein Ergebnis im Session State haben (aber noch nicht gespeichert)
+        if generate_btn:
+            with st.spinner("KI plant die Woche..."):
+                # PROMPT BAUEN
+                diaet_str = ", ".join(current_data['diaet']) if isinstance(current_data['diaet'], list) else current_data['diaet']
+                vermeiden_str = ", ".join(current_data.get('vermeiden_select', [])) + " " + current_data.get('vermeiden_text', "")
 
-    if generate_btn:
-        with st.spinner("KI analysiert Profil, Vorrat, Prospekte und Wünsche..."):
-            
-            # --- DATEN VORBEREITEN ---
-            diaet_str = ", ".join(current_data['diaet']) if isinstance(current_data['diaet'], list) else current_data['diaet']
-            
-            # Zutaten vermeiden: Kombiniere Liste und Freitext
-            vermeiden_liste = current_data.get('vermeiden_select', [])
-            if current_data.get('vermeiden_text'):
-                vermeiden_liste.append(current_data.get('vermeiden_text'))
-            vermeiden_str = ", ".join(vermeiden_liste)
+                prompt = f"""
+                Du bist der Food Manager. Erstelle einen Wochenplan für {selected_week_label}.
+                
+                PROFIL:
+                - {current_data['erwachsene']} Erw, {current_data['kinder_ueber3']} Kind(>3), {current_data['kinder_unter3']} Kind(<3).
+                - Ernährung: {diaet_str} (No-Gos: {vermeiden_str})
+                - Besonderheit: {current_data.get('besonderheiten', '')}
+                - Geräte: {', '.join(current_data['geraete'])}
+                - Vorrat: {current_data['vorrat']}
+                
+                SITUATION DIESE WOCHE:
+                - Zeit: {zeit_input} Min
+                - Events: {wochen_besonderheit}
+                - Wünsche: {manuelle_reste}
+                
+                AUFGABE:
+                Erstelle einen Plan mit 4-5 Gerichten.
+                
+                FORMATIERUNG (WICHTIG):
+                Nutze Markdown.
+                
+                1. Zuerst eine **Übersicht** der Gerichte (Kurz: Name + Dauer + Key-Ingredients).
+                2. Dann für JEDES Gericht einen Abschnitt, den man später aufklappen könnte (Nutze Überschriften wie '### Rezept 1: Name').
+                   - Darunter: Zubereitung und Zutatenliste.
+                3. Am Ende eine **Einkaufsliste** sortiert nach Supermarkt-Kategorien.
+                
+                Sprich den Nutzer direkt an.
+                """
+                
+                content = [prompt]
+                if kuehlschrank_img:
+                    content.append(Image.open(kuehlschrank_img))
+                    content.append("Kühlschrank-Inhalt")
+                if prospekt_files:
+                    for p in prospekt_files:
+                        content.append(Image.open(p))
+                        content.append("Prospekt-Angebote")
 
-            prompt = f"""
-            Du bist der 'Food & Family Manager' - ein intelligenter KI-Koch.
-            
-            1. FESTES PROFIL (immer beachten):
-            - Personen: {current_data['erwachsene']} Erw, {current_data['kinder_ueber3']} Kinder (>3), {current_data['kinder_unter3']} Kinder (<3).
-            - WICHTIGE BESONDERHEITEN: {current_data.get('besonderheiten', 'Keine')}
-            - Ernährung: {diaet_str}
-            - No-Gos (Vermeiden): {vermeiden_str}
-            - Geräte im Haushalt: {', '.join(current_data['geraete'])}
-            - Supermärkte: {', '.join(current_data['shops'])}
-            - STÄNDIGER VORRAT (NICHT KAUFEN): {current_data['vorrat']}
-            - Ernährungsziele: {', '.join(current_data['ziele'])}
-            
-            2. AKTUELLE WOCHE:
-            - Zeitlimit: {zeit_input} Min
-            - Events/Besonderheit: {wochen_besonderheit}
-            - Reste/Wünsche: {manuelle_reste}
-            
-            AUFGABE:
-            1. Analysiere Bilder (falls vorhanden: Kühlschrank & Prospekte).
-            2. Erstelle einen Essensplan (3-4 Gerichte).
-            3. Berücksichtige die "WICHTIGE BESONDERHEITEN" (z.B. Brei für Baby, Diät für Papa).
-            4. Erstelle Einkaufsliste (sortiert nach Supermarkt-Regal).
-            
-            Output bitte schön formatiert mit Markdown. Nutze Emojis.
-            """
-            
-            content_parts = [prompt]
-            
-            if kuehlschrank_img:
-                img = Image.open(kuehlschrank_img)
-                content_parts.append(img)
-                content_parts.append("Kühlschrank-Foto")
-            
-            if prospekt_files:
-                for p_file in prospekt_files:
-                    try:
-                        p_img = Image.open(p_file)
-                        content_parts.append(p_img)
-                        content_parts.append("Werbeprospekt")
-                    except:
-                        pass 
+                try:
+                    model = genai.GenerativeModel('gemini-2.5-flash')
+                    response = model.generate_content(content)
+                    st.session_state['temp_plan'] = response.text
+                except Exception as e:
+                    st.error(f"Fehler: {e}")
 
-            try:
-                # MODELL UPDATE: Wir nutzen jetzt explizit gemini-2.5-flash
-                # oder alternativ 'gemini-1.5-pro' falls Flash zickt.
-                # Wir bleiben bei 2.5 da du es in der Liste hattest.
-                model = genai.GenerativeModel('gemini-2.5-flash')
-                response = model.generate_content(content_parts)
-                st.markdown(response.text)
-            except Exception as e:
-                st.error(f"Fehler: {e}")
-                st.info("Tipp: Falls Error 404 kommt, update bitte requirements.txt auf 'google-generativeai>=0.8.3'")
+        # ANZEIGE DER VORSCHAU (Wenn generiert wurde)
+        if 'temp_plan' in st.session_state:
+            st.divider()
+            st.subheader("Vorschau des Plans:")
+            st.markdown(st.session_state['temp_plan'])
+            
+            st.success("Gefällt dir der Plan?")
+            col_s1, col_s2 = st.columns(2)
+            
+            if col_s1.button("💾 Ja, Plan einloggen/speichern"):
+                save_week_plan(selected_profile_name, week_key, st.session_state['temp_plan'])
+                del st.session_state['temp_plan'] # Temp löschen
+                st.rerun() # Seite neu laden -> Springt in "Eingeloggt"-Ansicht
+            
+            if col_s2.button("🔄 Nein, neu generieren"):
+                del st.session_state['temp_plan']
+                st.rerun()
