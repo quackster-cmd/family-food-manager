@@ -7,12 +7,20 @@ import os
 # --- KONFIGURATION ---
 st.set_page_config(page_title="Food Manager Pro", page_icon="🥗", layout="wide")
 
-# API Key Setup (wie gehabt)
+# --- API KEY SETUP (SICHER & ROBUST) ---
 try:
-    api_key = st.secrets["GOOGLE_API_KEY"]
-    genai.configure(api_key=api_key)
-except Exception:
-    st.warning("⚠️ API Key fehlt.")
+    # 1. Versuche, den Key aus den Secrets zu laden
+    if "GOOGLE_API_KEY" in st.secrets:
+        api_key = st.secrets["GOOGLE_API_KEY"]
+        genai.configure(api_key=api_key)
+    else:
+        # 2. Falls der Key fehlt, zeige Fehler ANSTATT abzustürzen
+        st.error("🚨 FEHLER: Der API Key fehlt in den Streamlit Secrets!")
+        st.info("Bitte gehe zu: Manage App -> Settings -> Secrets und trage 'GOOGLE_API_KEY' ein.")
+        st.stop() # Stoppt die App hier sauber
+except Exception as e:
+    st.error(f"🚨 Ein unerwarteter Fehler ist aufgetreten: {e}")
+    st.stop()
 
 # --- DATEN-MANAGEMENT (PRESETS) ---
 PROFILE_FILE = "user_profiles.json"
