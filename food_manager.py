@@ -8,25 +8,35 @@ import datetime
 # --- KONFIGURATION ---
 st.set_page_config(page_title="Food & Family Manager", page_icon="🍽️", layout="wide")
 
-# Custom CSS für zentrierten Titel auf Mobile
+# Custom CSS für Karten-Look und Zentrierung
 st.markdown("""
     <style>
     .title-box {
         text-align: center;
         padding: 20px;
-        background-color: #f0f2f6;
-        border-radius: 10px;
-        margin-bottom: 20px;
+        margin-bottom: 30px;
     }
     .title-text {
-        color: #2e7bcf;
-        font-size: 40px;
-        font-weight: bold;
-        line-height: 1.2;
+        font-size: 3rem;
+        font-weight: 800;
+        background: -webkit-linear-gradient(45deg, #FF6B6B, #4ECDC4);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
     }
-    .subtitle-text {
-        color: #555;
-        font-size: 20px;
+    .recipe-card {
+        background-color: #ffffff;
+        padding: 20px;
+        border-radius: 15px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        margin-bottom: 20px;
+        border: 1px solid #f0f0f0;
+    }
+    .recipe-card-locked {
+        background-color: #e6fffa;
+        border: 2px solid #4ECDC4;
+        padding: 20px;
+        border-radius: 15px;
+        margin-bottom: 20px;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -45,7 +55,6 @@ except Exception as e:
 
 # --- DATEN-MANAGEMENT ---
 PROFILE_FILE = "user_profiles.json"
-PLANS_FILE = "weekly_plans.json"
 
 def load_json(filename):
     if not os.path.exists(filename):
@@ -71,7 +80,7 @@ def delete_profile(name):
         del profiles[name]
         save_json(PROFILE_FILE, profiles)
 
-# --- STATE MANAGEMENT (Rezept-Logik) ---
+# --- STATE MANAGEMENT ---
 if 'selected_profile_key' not in st.session_state:
     st.session_state.selected_profile_key = "Neues Profil erstellen"
 
@@ -79,7 +88,6 @@ if 'profile_to_select' in st.session_state:
     st.session_state.selected_profile_key = st.session_state.profile_to_select
     del st.session_state.profile_to_select
 
-# Hier speichern wir die generierten Rezepte
 # Struktur: [{'day': 1, 'content': 'Pasta...', 'locked': False}, ...]
 if 'recipe_slots' not in st.session_state:
     st.session_state.recipe_slots = []
@@ -104,7 +112,7 @@ with st.sidebar:
                 st.session_state.profile_to_select = "Neues Profil erstellen"
                 st.rerun()
 
-# --- UI: TITEL (ZENTRIERT) ---
+# --- UI: TITEL ---
 st.markdown("""
 <div class="title-box">
     <div class="title-text">🍽️ Food & Family<br>Manager</div>
@@ -147,11 +155,9 @@ with st.expander("⚙️ Profil bearbeiten", expanded=is_new_profile):
         geraete_opts = sorted(["Backofen", "Mikrowelle", "Mixer", "Herd", "Air Fryer", "Thermomix", "Slow Cooker", "Grill", "Dampfgarer"])
         p_geraete = st.multiselect("Geräte im Haushalt:", geraete_opts, default=current_data.get("geraete", ["Backofen", "Herd"]))
         
-        # WIEDERHERGESTELLTE ZIELE-LISTE
         ziele_opts = sorted(["Geld sparen", "Weniger Fleisch", "Leichte Küche", "Neue Rezepte entdecken", "Proteinreich (Sport)", "Einkäufe minimieren", "Schnelle Küche (<20 Min)", "Bio / Nachhaltig", "Meal Prep geeignet"])
         p_ziele = st.multiselect("Ziele:", ziele_opts, default=current_data.get("ziele", ["Geld sparen"]))
         
-        # WIEDERHERGESTELLTE SUPERMÄRKTE
         shop_opts = sorted(["Aldi", "Lidl", "Rewe", "Edeka", "Netto", "Penny", "Kaufland", "DM", "Rossmann", "Marktkauf", "Hit", "Globus"])
         p_shops = st.multiselect("Supermärkte:", shop_opts, default=current_data.get("shops", ["Aldi", "Rewe"]))
         
@@ -175,172 +181,163 @@ with st.expander("⚙️ Profil bearbeiten", expanded=is_new_profile):
 if not is_new_profile:
     st.divider()
     
-    # 1. INPUT BEREICH
-    with st.container():
-        st.subheader("📅 Planungsvorgaben")
-        col_in1, col_in2 = st.columns(2)
-        
-        # TAGE SLIDER (NEU)
-        days_to_plan = col_in1.slider("Anzahl Tage planen:", 1, 7, 4)
-        zeit_input = col_in1.slider("Zeit pro Tag (Min)?", 0, 120, 30, step=5)
-        
-        # Wünsche (Umbemannt)
-        manuelle_reste = col_in2.text_area("Wünsche / Reste:", "Alles offen", height=100)
-        
-        with st.expander("📸 Uploads (Kühlschrank/Prospekte)"):
-            c_up1, c_up2 = st.columns(2)
-            kuehlschrank_img = c_up1.file_uploader("Kühlschrank", type=["jpg", "png", "jpeg"])
-            prospekt_files = c_up2.file_uploader("Werbeprospekte", type=["jpg", "png", "jpeg"], accept_multiple_files=True)
+    # --- INPUT BEREICH ---
+    col_in1, col_in2 = st.columns(2)
+    days_to_plan = col_in1.slider("Anzahl Tage planen:", 1, 7, 4)
+    zeit_input = col_in1.slider("Zeit pro Tag (Min)?", 0, 120, 30, step=5)
+    manuelle_reste = col_in2.text_area("Wünsche / Reste:", "Alles offen", height=100)
+    
+    with st.expander("📸 Uploads (Kühlschrank/Prospekte)"):
+        c_up1, c_up2 = st.columns(2)
+        kuehlschrank_img = c_up1.file_uploader("Kühlschrank", type=["jpg", "png", "jpeg"])
+        prospekt_files = c_up2.file_uploader("Werbeprospekte", type=["jpg", "png", "jpeg"], accept_multiple_files=True)
 
-    # 2. GENERIERUNGS-LOGIK
-    # Wir brauchen einen Button, der "Nicht fixierte" neu generiert
-    if st.button("🎲 Planung starten / Neue Vorschläge würfeln"):
+    # --- INITIALER START BUTTON (Nur wenn Liste leer) ---
+    if not st.session_state.recipe_slots:
+        if st.button("🚀 Erste Planung starten", type="primary"):
+            # Initiale leere Slots erstellen
+            st.session_state.recipe_slots = [{'day': i+1, 'content': None, 'locked': False} for i in range(days_to_plan)]
+            st.rerun()
+
+    # --- ANZEIGE & LOGIK ---
+    if st.session_state.recipe_slots:
         
-        # Liste anpassen falls Slider geändert wurde
+        # 1. GENERIERUNG (Automatisch wenn Slot leer ist)
         current_slots = st.session_state.recipe_slots
         
-        # Wenn wir mehr Tage wollen als wir haben -> auffüllen
+        # Slider Anpassung Logik
         if len(current_slots) < days_to_plan:
             for i in range(days_to_plan - len(current_slots)):
                 current_slots.append({'day': len(current_slots)+1, 'content': None, 'locked': False})
-        
-        # Wenn wir weniger Tage wollen -> abschneiden (aber vorsichtig)
-        if len(current_slots) > days_to_plan:
+        elif len(current_slots) > days_to_plan:
             st.session_state.recipe_slots = current_slots[:days_to_plan]
             current_slots = st.session_state.recipe_slots
-
-        # Welche Slots müssen generiert werden? (Die nicht gelockten)
-        slots_to_fill = [i for i, slot in enumerate(current_slots) if not slot['locked']]
-        locked_recipes = [slot['content'] for slot in current_slots if slot['locked'] and slot['content']]
+            
+        slots_to_fill = [i for i, slot in enumerate(current_slots) if not slot['content']]
         
-        if not slots_to_fill:
-            st.warning("Alle Tage sind fixiert! Bitte Sperre lösen, um neue zu generieren.")
-        else:
-            with st.spinner(f"Generiere {len(slots_to_fill)} neue Rezepte..."):
+        # Nur KI rufen, wenn wir wirklich leere Slots haben (um Kosten/Zeit zu sparen)
+        if slots_to_fill:
+            with st.spinner(f"Der KI-Koch brutzelt {len(slots_to_fill)} neue Ideen..."):
+                locked_recipes = [slot['content'] for slot in current_slots if slot['locked'] and slot['content']]
                 
-                # Prompt zusammenbauen
                 diaet_str = ", ".join(current_data['diaet']) if isinstance(current_data['diaet'], list) else current_data['diaet']
                 vermeiden_str = ", ".join(current_data.get('vermeiden_select', [])) + " " + current_data.get('vermeiden_text', "")
                 
                 prompt = f"""
                 Du bist der Food Manager.
-                
-                PROFIL:
-                - {current_data['erwachsene']} Erw, {current_data['kinder_ueber3']} Kind(>3), {current_data['kinder_unter3']} Kind(<3).
-                - Ernährung: {diaet_str} (No-Gos: {vermeiden_str})
-                - Besonderheit: {current_data.get('besonderheiten', '')}
-                - Geräte: {', '.join(current_data['geraete'])}
-                - Vorrat: {current_data['vorrat']}
-                - Ziele: {', '.join(current_data['ziele'])}
+                PROFIL: {current_data['erwachsene']} Erw, {current_data['kinder_ueber3']} Kind(>3), {current_data['kinder_unter3']} Kind(<3).
+                Ernährung: {diaet_str} (No-Gos: {vermeiden_str}). Vorrat: {current_data['vorrat']}.
+                Ziele: {', '.join(current_data['ziele'])}.
                 
                 AUFGABE:
                 Generiere {len(slots_to_fill)} UNTERSCHIEDLICHE Rezepte.
+                Vermeide Dopplung zu: {json.dumps(locked_recipes)}
                 
-                BEREITS FIXIERTE GERICHTE (Dazu passend kochen, keine Dopplungen!):
-                {json.dumps(locked_recipes)}
+                SITUATION: Zeit: {zeit_input} Min. Wünsche: {manuelle_reste}.
                 
-                SITUATION:
-                - Zeit: {zeit_input} Min
-                - Wünsche: {manuelle_reste}
-                
-                FORMATIERUNG (EXTREM WICHTIG):
-                - Gib mir NUR die Rezepte.
-                - Trenne jedes Rezept exakt mit diesem Trenner: "---TRENNER---"
-                - Nutze Markdown für das Rezept (Name fett, Zutatenliste, kurze Zubereitung).
-                - KEIN Einleitungstext, KEINE Einkaufsliste (die mache ich später).
+                FORMATIERUNG:
+                - Trenner: "---TRENNER---"
+                - Inhalt: Markdown.
+                - TITEL: Mit passendem Emoji am Anfang (z.B. "🍝 Spaghetti Bolognese").
+                - STRUKTUR: Titel fett, kurze Beschreibung, Zutatenliste, Zubereitungsschritte.
                 """
                 
                 content = [prompt]
                 if kuehlschrank_img:
                     content.append(Image.open(kuehlschrank_img))
-                    content.append("Kühlschrank-Inhalt")
+                    content.append("Kühlschrank")
                 if prospekt_files:
                     for p in prospekt_files:
                         content.append(Image.open(p))
-                        content.append("Prospekt-Angebote")
+                        content.append("Prospekt")
 
                 try:
                     model = genai.GenerativeModel('gemini-2.5-flash')
                     response = model.generate_content(content)
+                    new_recipes = response.text.split("---TRENNER---")
                     
-                    # Antwort splitten am Trenner
-                    new_recipes_text = response.text.split("---TRENNER---")
-                    
-                    # Slots füllen
                     fill_idx = 0
                     for slot_idx in slots_to_fill:
-                        if fill_idx < len(new_recipes_text):
-                            # Text säubern und zuweisen
-                            clean_text = new_recipes_text[fill_idx].strip()
-                            if clean_text:
-                                st.session_state.recipe_slots[slot_idx]['content'] = clean_text
+                        if fill_idx < len(new_recipes):
+                            st.session_state.recipe_slots[slot_idx]['content'] = new_recipes[fill_idx].strip()
                             fill_idx += 1
-                            
+                    st.rerun() # Refresh um Ergebnisse anzuzeigen
                 except Exception as e:
-                    st.error(f"Fehler bei KI: {e}")
+                    st.error(f"Fehler: {e}")
 
-    # 3. ANZEIGE DER REZEPTE (Karten-Ansicht)
-    if st.session_state.recipe_slots:
-        st.divider()
-        st.subheader(f"🍳 Deine Gerichte für {len(st.session_state.recipe_slots)} Tage")
+        # 2. ANZEIGE DER KARTEN (LOOP)
+        st.subheader(f"🍳 Dein Menü ({days_to_plan} Gerichte)")
         
-        # Wir gehen durch die Slots
         for i, slot in enumerate(st.session_state.recipe_slots):
             if slot['content']:
-                # Optik: Fixierte Rezepte kriegen einen grünen Rahmen/Hintergrund (via Success)
-                # Offene Rezepte sind normal
+                # Design Wahl: Grün wenn Locked, Weiß wenn offen
+                card_style = "recipe-card-locked" if slot['locked'] else "recipe-card"
+                lock_emoji = "🔒 FIXIERT" if slot['locked'] else "🔓 OFFEN"
                 
-                col_card, col_lock = st.columns([5, 1])
+                # HTML Container Start
+                st.markdown(f'<div class="{card_style}">', unsafe_allow_html=True)
                 
-                with col_card:
-                    if slot['locked']:
-                        st.success(f"🔒 **TAG {i+1} (FIXIERT)**\n\n" + slot['content'])
-                    else:
-                        st.info(f"✨ **TAG {i+1} (Vorschlag)**\n\n" + slot['content'])
+                col_title, col_toggle = st.columns([4, 1])
+                with col_title:
+                    st.markdown(slot['content'])
+                with col_toggle:
+                    # Der Schalter
+                    is_locked = st.toggle(lock_emoji, value=slot['locked'], key=f"lock_btn_{i}")
+                    if is_locked != slot['locked']:
+                        st.session_state.recipe_slots[i]['locked'] = is_locked
+                        st.rerun()
                 
-                with col_lock:
-                    # Der Lock-Switch
-                    is_locked = st.checkbox("🔒 Fixieren", value=slot['locked'], key=f"lock_{i}")
-                    # State sofort updaten
-                    st.session_state.recipe_slots[i]['locked'] = is_locked
+                st.markdown('</div>', unsafe_allow_html=True)
 
-        st.markdown("---")
+        # 3. ACTION BUTTONS (GANZ UNTEN)
+        st.divider()
+        col_act1, col_act2 = st.columns(2)
         
-        # 4. FINALE EINKAUFSLISTE GENERIEREN
-        if st.button("🛒 Einkaufsliste für diese Auswahl erstellen"):
-            
-            # Wir sammeln alle aktuellen Rezepte (egal ob gelockt oder neu)
-            all_recipes_text = ""
-            for i, slot in enumerate(st.session_state.recipe_slots):
-                status = "FIXIERT (Zutaten Grün markieren 🟢)" if slot['locked'] else "NEU (Zutaten Gelb markieren 🟡)"
-                all_recipes_text += f"REZEPT {i+1} ({status}):\n{slot['content']}\n\n"
-            
-            with st.spinner("Erstelle smarte Einkaufsliste..."):
-                prompt_list = f"""
-                Erstelle eine Einkaufsliste basierend auf diesen Rezepten.
-                
-                INPUT REZEPTE:
-                {all_recipes_text}
-                
-                REGELN:
-                1. Sortiere nach Kategorien (🥦 Obst/Gemüse, 🥛 Kühlregal, 🥩 Fleisch, etc.).
-                2. Nutze Emojis für die Kategorien.
-                3. FARB-CODIERUNG (WICHTIG):
-                   - Wenn eine Zutat zu einem 'FIXIERTEN' Rezept gehört, setze ein 🟢 davor.
-                   - Wenn eine Zutat zu einem 'NEUEN' Rezept gehört, setze ein 🟡 davor.
-                   - Wenn sie in beiden vorkommt, nimm 🟢.
-                4. Ignoriere Dinge aus dem Vorrat: {current_data['vorrat']}
-                
-                Ausgabe als saubere Markdown-Liste.
-                """
-                try:
-                    model = genai.GenerativeModel('gemini-2.5-flash')
-                    response_list = model.generate_content(prompt_list)
-                    st.session_state.final_shopping_list = response_list.text
-                except Exception as e:
-                    st.error(f"Fehler Liste: {e}")
+        # LINKER BUTTON: Neu Würfeln
+        with col_act1:
+            if st.button("🎲 Offene Gerichte neu würfeln", use_container_width=True):
+                # Wir löschen den Content der nicht-gelockten Slots -> Das triggert oben die KI neu
+                for slot in st.session_state.recipe_slots:
+                    if not slot['locked']:
+                        slot['content'] = None
+                st.rerun()
 
-        # ANZEIGE LISTE
-        if 'final_shopping_list' in st.session_state:
-            st.header("🛒 Einkaufsliste")
-            st.markdown(st.session_state.final_shopping_list)
+        # RECHTER BUTTON: Einkaufsliste & Alles Locken
+        with col_act2:
+            if st.button("🛒 Einkaufsliste erstellen (Alles Einloggen)", type="primary", use_container_width=True):
+                # 1. Alles locken
+                for slot in st.session_state.recipe_slots:
+                    slot['locked'] = True
+                
+                # 2. Liste generieren
+                with st.spinner("Erstelle finale Liste..."):
+                    all_text = "\n".join([s['content'] for s in st.session_state.recipe_slots if s['content']])
+                    p_list = f"""
+                    Erstelle Einkaufsliste für diese Rezepte:
+                    {all_text}
+                    Regeln: Sortiert nach Supermarkt-Bereich (Obst, Kühlung etc.). Emojis nutzen.
+                    Vorrat ignorieren: {current_data['vorrat']}
+                    """
+                    try:
+                        m = genai.GenerativeModel('gemini-2.5-flash')
+                        res = m.generate_content(p_list)
+                        st.session_state.final_shopping_list = res.text
+                    except:
+                        pass
+                st.rerun()
+
+    # 4. FINALE LISTE ANZEIGEN
+    if 'final_shopping_list' in st.session_state:
+        st.divider()
+        st.markdown("""
+        <div style="background-color:#fff3cd; padding:20px; border-radius:10px; border:1px solid #ffeeba;">
+            <h2 style="text-align:center;">🛒 Deine Einkaufsliste</h2>
+        </div>
+        """, unsafe_allow_html=True)
+        st.markdown(st.session_state.final_shopping_list)
+        
+        if st.button("🔄 Liste schließen / Neu anfangen"):
+            del st.session_state.final_shopping_list
+            # Optional: Slots resetten?
+            # st.session_state.recipe_slots = []
+            st.rerun()
