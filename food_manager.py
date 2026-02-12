@@ -29,7 +29,7 @@ def load_profiles():
         with open(PROFILE_FILE, "r") as f:
             return json.load(f)
     except json.JSONDecodeError:
-        return {} # Falls Datei kaputt ist, leeres Dictionary zurückgeben
+        return {}
 
 def save_profile(name, data):
     profiles = load_profiles()
@@ -46,18 +46,25 @@ def delete_profile(name):
             json.dump(profiles, f, indent=4)
     return profiles
 
-# --- SESSION STATE ---
+# --- SESSION STATE LOGIK (DER FIX) ---
 if 'selected_profile_key' not in st.session_state:
     st.session_state.selected_profile_key = "Neues Profil erstellen"
+
+# HIER IST DER FIX: Wir prüfen VOR dem Zeichnen der Sidebar, ob wir wechseln müssen
+if 'profile_to_select' in st.session_state:
+    st.session_state.selected_profile_key = st.session_state.profile_to_select
+    del st.session_state.profile_to_select # "Zwischenablage" löschen
 
 # --- UI: SEITENLEISTE ---
 with st.sidebar:
     st.header("👤 Profil-Verwaltung")
     profiles = load_profiles()
-    profile_names = sorted(list(profiles.keys())) # Auch Profile alphabetisch
+    # Alphabetisch sortieren
+    profile_names = sorted(list(profiles.keys()))
     
     optionen = ["Neues Profil erstellen"] + profile_names
     
+    # Fallback, falls gelöschtes Profil noch ausgewählt war
     if st.session_state.selected_profile_key not in optionen:
         st.session_state.selected_profile_key = "Neues Profil erstellen"
 
@@ -71,7 +78,8 @@ with st.sidebar:
         st.divider()
         if st.button(f"🗑️ Profil '{selected_profile_name}' löschen"):
             delete_profile(selected_profile_name)
-            st.session_state.selected_profile_key = "Neues Profil erstellen"
+            # Auch beim Löschen nutzen wir den Trick:
+            st.session_state.profile_to_select = "Neues Profil erstellen"
             st.rerun()
 
 # --- UI: HAUPTBEREICH ---
@@ -105,17 +113,15 @@ with st.expander("⚙️ Profil-Einstellungen & Presets bearbeiten", expanded=is
 
         st.write("### 3. Ernährung & Ausschluss")
         
-        # ALPHABETISCHE LISTEN
         diaet_optionen = sorted(["Ausgewogen (Alles)", "Vegetarisch", "Vegan", "Ohne Schwein", "Glutenfrei", "Laktosefrei", "Pescatarier", "Low Carb", "Keto"])
         vermeiden_optionen = sorted(["Nüsse", "Eier", "Soja", "Pilze", "Oliven", "Fisch", "Tomaten", "Koriander", "Meeresfrüchte", "Paprika", "Zwiebeln", "Knoblauch"])
         
-        # Logik für Mehrfachauswahl bei Ernährung
-        # Fallback: Falls im alten Profil nur ein String steht, machen wir eine Liste draus
+        # Mehrfachauswahl Logik (Repair)
         saved_diaet = current_data.get("diaet", ["Ausgewogen (Alles)"])
         if isinstance(saved_diaet, str): 
-            saved_diaet = [saved_diaet] # Repariert alte Profile
+            saved_diaet = [saved_diaet]
             
-        p_diaet = st.multiselect("Ernährungsweise (Mehrfachwahl möglich):", diaet_optionen, default=saved_diaet)
+        p_diaet = st.multiselect("Ernährungsweise (Mehrfachwahl):", diaet_optionen, default=saved_diaet)
         
         p_vermeiden = st.multiselect(
             "Zutaten vermeiden:",
@@ -149,7 +155,7 @@ with st.expander("⚙️ Profil-Einstellungen & Presets bearbeiten", expanded=is
                     "kinder_ueber3": p_kinder_ueber3,
                     "kinder_unter3": p_kinder_unter3,
                     "besonderheiten": p_besonderheiten,
-                    "diaet": p_diaet,  # Ist jetzt eine Liste []
+                    "diaet": p_diaet,
                     "vermeiden": p_vermeiden,
                     "geraete": p_geraete,
                     "ziele": p_ziele,
@@ -158,7 +164,8 @@ with st.expander("⚙️ Profil-Einstellungen & Presets bearbeiten", expanded=is
                 }
                 save_profile(profile_name_input, new_profile_data)
                 
-                st.session_state.selected_profile_key = profile_name_input
+                # DER FIX: Wir schreiben in die Zwischenablage und laden neu
+                st.session_state.profile_to_select = profile_name_input
                 st.success(f"Profil '{profile_name_input}' gespeichert!")
                 st.rerun()
 
@@ -184,8 +191,6 @@ if not is_new_profile:
     if generate_btn:
         with st.spinner("KI analysiert Profil, Vorrat, Prospekte und Wünsche..."):
             
-            # --- DATEN VORBEREITEN FÜR PROMPT ---
-            # Da 'diaet' jetzt eine Liste ist, müssen wir sie zu einem String verbinden
             diaet_str = ", ".join(current_data['diaet']) if isinstance(current_data['diaet'], list) else current_data['diaet']
             
             prompt = f"""
