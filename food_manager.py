@@ -3,35 +3,44 @@ import google.generativeai as genai
 from PIL import Image
 import json
 import os
-import datetime
 
 # --- KONFIGURATION ---
 st.set_page_config(page_title="Food & Family Manager", page_icon="🍽️", layout="wide")
 
 # --- CSS / DESIGN ---
-# Wir definieren KEINE festen Hintergrundfarben für Container.
-# Wir stylen nur den Titel schick. Der Rest passt sich dem System (Hell/Dunkel) an.
 st.markdown("""
     <style>
-    .title-box {
+    /* 1. HAUPTTITEL */
+    .main-title {
         text-align: center;
-        padding: 15px;
-        margin-bottom: 25px;
-    }
-    .title-text {
-        font-size: 2.5rem;
-        font-weight: 800;
+        padding: 10px;
+        margin-bottom: 20px;
+        font-size: 3rem;
+        font-weight: 900;
         background: -webkit-linear-gradient(45deg, #FF6B6B, #4ECDC4);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
-        /* Fallback für Browser die Text-Fill nicht können */
-        color: #FF6B6B; 
     }
-    /* Intro-Box Styling (Dezent) */
+    
+    /* 2. ABSCHNITTS-TITEL (Menü & Einkaufsliste) - Gleicher Style wie Haupttitel */
+    .section-title {
+        font-size: 2.2rem;
+        font-weight: 800;
+        margin-top: 30px;
+        margin-bottom: 20px;
+        background: -webkit-linear-gradient(45deg, #FF6B6B, #4ECDC4);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        border-bottom: 2px solid #f0f0f0; /* Eine feine Linie drunter */
+        padding-bottom: 10px;
+    }
+
+    /* 3. INTRO BOX */
     .intro-box {
         padding: 15px;
+        background-color: rgba(78, 205, 196, 0.1); /* Hauchzartes Türkis */
         border-radius: 10px;
-        margin-bottom: 20px;
+        margin-bottom: 25px;
         font-style: italic;
         border-left: 5px solid #4ECDC4;
     }
@@ -85,11 +94,9 @@ if 'profile_to_select' in st.session_state:
     st.session_state.selected_profile_key = st.session_state.profile_to_select
     del st.session_state.profile_to_select
 
-# Struktur: [{'day': 1, 'content': 'Pasta...', 'locked': False}, ...]
 if 'recipe_slots' not in st.session_state:
     st.session_state.recipe_slots = []
 
-# Hier speichern wir die Begrüßung separat
 if 'intro_text' not in st.session_state:
     st.session_state.intro_text = ""
 
@@ -114,11 +121,7 @@ with st.sidebar:
                 st.rerun()
 
 # --- UI: TITEL ---
-st.markdown("""
-<div class="title-box">
-    <div class="title-text">🍽️ Food & Family<br>Manager</div>
-</div>
-""", unsafe_allow_html=True)
+st.markdown('<div class="main-title">🍽️ Food & Family<br>Manager</div>', unsafe_allow_html=True)
 
 current_data = {}
 is_new_profile = (selected_profile_name == "Neues Profil erstellen")
@@ -182,7 +185,7 @@ with st.expander("⚙️ Profil bearbeiten", expanded=is_new_profile):
 if not is_new_profile:
     st.divider()
     
-    # --- INPUT BEREICH (EINKLAPPBAR) ---
+    # --- INPUT BEREICH ---
     inputs_expanded = not bool(st.session_state.recipe_slots)
     
     with st.expander("📝 Planungsvorgaben & Uploads", expanded=inputs_expanded):
@@ -195,16 +198,14 @@ if not is_new_profile:
         kuehlschrank_img = c_up1.file_uploader("Kühlschrank", type=["jpg", "png", "jpeg"])
         prospekt_files = c_up2.file_uploader("Werbeprospekte", type=["jpg", "png", "jpeg"], accept_multiple_files=True)
 
-        # INITIALER START BUTTON
         if not st.session_state.recipe_slots:
             if st.button("🚀 Erste Planung starten", type="primary"):
                 st.session_state.recipe_slots = [{'day': i+1, 'content': None, 'locked': False} for i in range(days_to_plan)]
                 st.rerun()
 
-    # --- ANZEIGE & LOGIK ---
+    # --- GENERIERUNGS-LOGIK ---
     if st.session_state.recipe_slots:
         
-        # 1. GENERIERUNG
         current_slots = st.session_state.recipe_slots
         
         # Slider Anpassung
@@ -219,30 +220,41 @@ if not is_new_profile:
         
         if slots_to_fill:
             with st.spinner(f"Der KI-Koch brutzelt {len(slots_to_fill)} neue Ideen..."):
-                locked_recipes = [slot['content'] for slot in current_slots if slot['locked'] and slot['content']]
                 
+                # --- WICHTIG: LOGIK FÜR DOPPLUNGEN VERMEIDEN ---
+                locked_content = [slot['content'] for slot in current_slots if slot['locked'] and slot['content']]
+                locked_text_block = "\n---\n".join(locked_content) if locked_content else "Keine Rezepte fixiert."
+
                 diaet_str = ", ".join(current_data['diaet']) if isinstance(current_data['diaet'], list) else current_data['diaet']
                 vermeiden_str = ", ".join(current_data.get('vermeiden_select', [])) + " " + current_data.get('vermeiden_text', "")
                 
-                # --- PROMPT MIT BEGRÜSSUNG ---
+                # --- DER VERBESSERTE PROMPT ---
                 prompt = f"""
                 Du bist der Food Manager.
+                
                 PROFIL: {current_data['erwachsene']} Erw, {current_data['kinder_ueber3']} Kind(>3), {current_data['kinder_unter3']} Kind(<3).
-                Ernährung: {diaet_str} (No-Gos: {vermeiden_str}). Vorrat: {current_data['vorrat']}.
+                Ernährung: {diaet_str} (No-Gos: {vermeiden_str}). 
+                Vorrat: {current_data['vorrat']}.
                 Ziele: {', '.join(current_data['ziele'])}.
                 
+                BEREITS FIXIERTE REZEPTE (ACHTUNG):
+                {locked_text_block}
+                
                 AUFGABE:
-                1. Schreibe ZUERST eine kurze, nette Begrüßung und erkläre, wie du die Wünsche berücksichtigt hast (Max 2-3 Sätze).
-                2. Mache dann den Trenner: "---TRENNER---"
-                3. Generiere dann EXAKT {len(slots_to_fill)} UNTERSCHIEDLICHE Rezepte.
+                1. ANALYSIERE die fixierten Rezepte GENAU.
+                   - Wenn "Grillen" vorkommt -> KEIN weiteres Grillen vorschlagen (außer explizit gewünscht).
+                   - Wenn "Pasta" vorkommt -> Vermeide Pasta an Folgetagen (Abwechslung!).
+                   - Suche nach anderen Proteinquellen/Methoden als in den fixierten Rezepten.
+                2. Generiere EXAKT {len(slots_to_fill)} NEUE Rezepte.
+                3. Schreibe GANZ AM ANFANG (vor dem ersten Rezept) eine kurze Begrüßung.
+                
+                FORMATIERUNG (EXTREM WICHTIG FÜR DARSTELLUNG):
+                - Trenne Intro und JEDES Rezept mit: "---TRENNER---"
+                - Nutze Markdown.
+                - DER TITEL MUSS IMMER SO STARTEN: "### 🥘 Titel" (Nutze unbedingt die drei Rauten ### für Überschrift!)
+                - Darunter: Beschreibung, Zutaten, Zubereitung.
                 
                 SITUATION: Zeit: {zeit_input} Min. Wünsche: {manuelle_reste}.
-                
-                FORMATIERUNG DER REZEPTE (NACH DEM ERSTEN TRENNER):
-                - Trenne jedes Rezept mit: "---TRENNER---"
-                - Inhalt: Markdown.
-                - TITEL: Mit passendem Emoji am Anfang (z.B. "🍝 Spaghetti Bolognese").
-                - STRUKTUR: Titel fett, kurze Beschreibung, Zutatenliste, Zubereitungsschritte.
                 """
                 
                 content = [prompt]
@@ -258,16 +270,11 @@ if not is_new_profile:
                     model = genai.GenerativeModel('gemini-2.5-flash')
                     response = model.generate_content(content)
                     
-                    # --- SPLITTEN ---
-                    # Teil 0 = Begrüßung
-                    # Teil 1 bis N = Rezepte
                     parts = response.text.split("---TRENNER---")
                     
-                    # Begrüßung speichern (Nur wenn wir sie noch nicht haben oder neu würfeln)
                     if len(parts) > 0:
                         st.session_state.intro_text = parts[0].strip()
                     
-                    # Rezepte extrahieren (ab Index 1)
                     new_recipes = [p.strip() for p in parts[1:] if p.strip()]
                     
                     fill_idx = 0
@@ -276,83 +283,80 @@ if not is_new_profile:
                             st.session_state.recipe_slots[slot_idx]['content'] = new_recipes[fill_idx]
                             fill_idx += 1
                         else:
-                            # Fallback
                             if not st.session_state.recipe_slots[slot_idx]['content']:
-                                st.session_state.recipe_slots[slot_idx]['content'] = "⚠️ Bitte nochmal würfeln."
+                                st.session_state.recipe_slots[slot_idx]['content'] = "⚠️ Fehler beim Generieren. Bitte 'Neu würfeln'."
                     
                     st.rerun() 
                 except Exception as e:
                     st.error(f"Fehler: {e}")
 
-        # 2. ANZEIGE BEGRÜSSUNG (Separat!)
-        if st.session_state.intro_text:
-            st.markdown(f'<div class="intro-box">{st.session_state.intro_text}</div>', unsafe_allow_html=True)
+    # --- ANZEIGE ---
+    
+    # 1. Begrüßung (In schicker Box)
+    if st.session_state.intro_text:
+        st.markdown(f'<div class="intro-box">{st.session_state.intro_text}</div>', unsafe_allow_html=True)
 
-        # 3. ANZEIGE DER KARTEN (Native Streamlit Container)
-        st.subheader(f"🍳 Dein Menü ({days_to_plan} Gerichte)")
-        
-        for i, slot in enumerate(st.session_state.recipe_slots):
-            if slot['content']:
+    # 2. Überschrift Menü (Jetzt im Corporate Design!)
+    st.markdown(f'<div class="section-title">🍳 Dein Menü ({days_to_plan} Gerichte)</div>', unsafe_allow_html=True)
+    
+    for i, slot in enumerate(st.session_state.recipe_slots):
+        if slot['content']:
+            with st.container(border=True):
+                c_head1, c_head2 = st.columns([5, 1])
+                is_locked = slot['locked']
                 
-                # Container passt sich automatisch dem Dark Mode an (kein weißer Hintergrundzwang)
-                with st.container(border=True):
-                    
-                    c_head1, c_head2 = st.columns([5, 1])
-                    is_locked = slot['locked']
-                    
-                    with c_head1:
-                        if is_locked:
-                            st.success(f"✅ **Tag {i+1}**: FIXIERT")
-                        else:
-                            st.caption(f"Vorschlag für Tag {i+1}")
-                    
-                    with c_head2:
-                        lock_state = st.toggle("Lock", value=is_locked, key=f"lock_{i}", label_visibility="collapsed")
-                        if lock_state != is_locked:
-                            st.session_state.recipe_slots[i]['locked'] = lock_state
-                            st.rerun()
-
-                    # Rezeptinhalt
-                    st.markdown(slot['content'])
-
-        # 4. ACTION BUTTONS
-        st.divider()
-        col_act1, col_act2 = st.columns(2)
-        
-        with col_act1:
-            if st.button("🎲 Offene Gerichte neu würfeln", use_container_width=True):
-                # Intro löschen, damit es neu generiert wird
-                st.session_state.intro_text = ""
-                for slot in st.session_state.recipe_slots:
-                    if not slot['locked']:
-                        slot['content'] = None
-                st.rerun()
-
-        with col_act2:
-            if st.button("🛒 Einkaufsliste (Alles Einloggen)", type="primary", use_container_width=True):
-                for slot in st.session_state.recipe_slots:
-                    slot['locked'] = True
+                with c_head1:
+                    if is_locked:
+                        st.success(f"✅ **Tag {i+1}**: FIXIERT")
+                    else:
+                        st.caption(f"Vorschlag für Tag {i+1}")
                 
-                with st.spinner("Erstelle finale Liste..."):
-                    all_text = "\n".join([s['content'] for s in st.session_state.recipe_slots if s['content']])
-                    p_list = f"""
-                    Erstelle Einkaufsliste für diese Rezepte:
-                    {all_text}
-                    Regeln: Sortiert nach Supermarkt-Bereich. Emojis nutzen.
-                    Vorrat ignorieren: {current_data['vorrat']}
-                    """
-                    try:
-                        m = genai.GenerativeModel('gemini-2.5-flash')
-                        res = m.generate_content(p_list)
-                        st.session_state.final_shopping_list = res.text
-                    except:
-                        pass
-                st.rerun()
+                with c_head2:
+                    lock_state = st.toggle("Lock", value=is_locked, key=f"lock_{i}", label_visibility="collapsed")
+                    if lock_state != is_locked:
+                        st.session_state.recipe_slots[i]['locked'] = lock_state
+                        st.rerun()
 
-    # 5. FINALE LISTE
+                st.markdown(slot['content'])
+
+    # 3. Action Buttons
+    st.divider()
+    col_act1, col_act2 = st.columns(2)
+    
+    with col_act1:
+        if st.button("🎲 Offene Gerichte neu würfeln", use_container_width=True):
+            # Intro nur löschen, wenn wir alles neu machen wollen? 
+            # Besser: Wir lassen Intro stehen oder updaten es durch neuen Prompt.
+            for slot in st.session_state.recipe_slots:
+                if not slot['locked']:
+                    slot['content'] = None
+            st.rerun()
+
+    with col_act2:
+        if st.button("🛒 Einkaufsliste (Alles Einloggen)", type="primary", use_container_width=True):
+            for slot in st.session_state.recipe_slots:
+                slot['locked'] = True
+            
+            with st.spinner("Erstelle finale Liste..."):
+                all_text = "\n".join([s['content'] for s in st.session_state.recipe_slots if s['content']])
+                p_list = f"""
+                Erstelle Einkaufsliste für diese Rezepte:
+                {all_text}
+                Regeln: Sortiert nach Supermarkt-Bereich. Emojis nutzen.
+                Vorrat ignorieren: {current_data['vorrat']}
+                """
+                try:
+                    m = genai.GenerativeModel('gemini-2.5-flash')
+                    res = m.generate_content(p_list)
+                    st.session_state.final_shopping_list = res.text
+                except:
+                    pass
+            st.rerun()
+
+    # 4. Einkaufsliste (Jetzt im Corporate Design!)
     if 'final_shopping_list' in st.session_state:
         st.divider()
-        st.success("🛒 Deine Einkaufsliste ist fertig!")
+        st.markdown('<div class="section-title">🛒 Deine Einkaufsliste</div>', unsafe_allow_html=True)
         st.markdown(st.session_state.final_shopping_list)
         
         if st.button("🔄 Liste schließen / Neu anfangen"):
