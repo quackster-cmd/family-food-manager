@@ -25,8 +25,11 @@ PROFILE_FILE = "user_profiles.json"
 def load_profiles():
     if not os.path.exists(PROFILE_FILE):
         return {}
-    with open(PROFILE_FILE, "r") as f:
-        return json.load(f)
+    try:
+        with open(PROFILE_FILE, "r") as f:
+            return json.load(f)
+    except json.JSONDecodeError:
+        return {} # Falls Datei kaputt ist, leeres Dictionary zurückgeben
 
 def save_profile(name, data):
     profiles = load_profiles()
@@ -43,8 +46,7 @@ def delete_profile(name):
             json.dump(profiles, f, indent=4)
     return profiles
 
-# --- SESSION STATE INITIALISIERUNG ---
-# Damit wir nach dem Speichern direkt das neue Profil auswählen können
+# --- SESSION STATE ---
 if 'selected_profile_key' not in st.session_state:
     st.session_state.selected_profile_key = "Neues Profil erstellen"
 
@@ -52,47 +54,41 @@ if 'selected_profile_key' not in st.session_state:
 with st.sidebar:
     st.header("👤 Profil-Verwaltung")
     profiles = load_profiles()
-    profile_names = list(profiles.keys())
+    profile_names = sorted(list(profiles.keys())) # Auch Profile alphabetisch
     
-    # Dropdown-Logik: Wir nutzen den Session State, um die Auswahl zu steuern
     optionen = ["Neues Profil erstellen"] + profile_names
     
-    # Fallback, falls das gespeicherte Profil gelöscht wurde
     if st.session_state.selected_profile_key not in optionen:
         st.session_state.selected_profile_key = "Neues Profil erstellen"
 
     selected_profile_name = st.selectbox(
         "Aktives Profil wählen", 
         optionen,
-        key="selected_profile_key" # Verbindet Widget mit Session State
+        key="selected_profile_key"
     )
 
-    # Lösch-Button (Nur anzeigen, wenn es nicht "Neues Profil" ist)
     if selected_profile_name != "Neues Profil erstellen":
         st.divider()
         if st.button(f"🗑️ Profil '{selected_profile_name}' löschen"):
             delete_profile(selected_profile_name)
-            st.session_state.selected_profile_key = "Neues Profil erstellen" # Reset auf Neu
-            st.rerun() # Seite neu laden
+            st.session_state.selected_profile_key = "Neues Profil erstellen"
+            st.rerun()
 
 # --- UI: HAUPTBEREICH ---
 st.title("🥦 Food & Family Manager")
 
-# Variablen vorbereiten
 current_data = {}
 is_new_profile = (selected_profile_name == "Neues Profil erstellen")
 
-# --- PROFIL LOGIK ---
 if is_new_profile:
     st.info("🆕 Lege hier dein Basis-Profil an.")
     profile_name_input = st.text_input("Name des Profils", "Meine Familie")
 else:
     current_data = profiles[selected_profile_name]
     profile_name_input = selected_profile_name
-    # Kleiner Hinweis, welches Profil aktiv ist
     st.success(f"✅ Profil **{selected_profile_name}** ist aktiv.")
 
-# --- DAS PRESET-FORMULAR (EXPANDER) ---
+# --- PRESET-FORMULAR ---
 with st.expander("⚙️ Profil-Einstellungen & Presets bearbeiten", expanded=is_new_profile):
     
     with st.form("preset_form"):
@@ -103,31 +99,38 @@ with st.expander("⚙️ Profil-Einstellungen & Presets bearbeiten", expanded=is
         p_kinder_unter3 = col3.number_input("Kinder (<3 Jahre)", 0, 10, current_data.get("kinder_unter3", 0))
 
         st.write("### 2. Dauerhafte Besonderheiten")
-        st.caption("Infos, die IMMER gelten (z.B. 'Baby 8M isst Brei/BLW', 'Papa macht Keto').")
+        st.caption("Infos, die IMMER gelten (z.B. 'Baby 8M isst Brei', 'Papa Keto').")
         default_besonderheiten = current_data.get("besonderheiten", "Baby (8 Monate) bekommt Beikost/Brei.")
         p_besonderheiten = st.text_area("Profil-Details:", default_besonderheiten)
 
         st.write("### 3. Ernährung & Ausschluss")
-        diaet_optionen = ["Ausgewogen (Alles)", "Vegetarisch", "Vegan", "Ohne Schwein", "Glutenfrei", "Laktosefrei", "Pescatarier"]
-        curr_diaet = current_data.get("diaet", "Ausgewogen (Alles)")
-        idx_diaet = diaet_optionen.index(curr_diaet) if curr_diaet in diaet_optionen else 0
-        p_diaet = st.selectbox("Ernährungsweise", diaet_optionen, index=idx_diaet)
         
-        vermeiden_default = current_data.get("vermeiden", [])
+        # ALPHABETISCHE LISTEN
+        diaet_optionen = sorted(["Ausgewogen (Alles)", "Vegetarisch", "Vegan", "Ohne Schwein", "Glutenfrei", "Laktosefrei", "Pescatarier", "Low Carb", "Keto"])
+        vermeiden_optionen = sorted(["Nüsse", "Eier", "Soja", "Pilze", "Oliven", "Fisch", "Tomaten", "Koriander", "Meeresfrüchte", "Paprika", "Zwiebeln", "Knoblauch"])
+        
+        # Logik für Mehrfachauswahl bei Ernährung
+        # Fallback: Falls im alten Profil nur ein String steht, machen wir eine Liste draus
+        saved_diaet = current_data.get("diaet", ["Ausgewogen (Alles)"])
+        if isinstance(saved_diaet, str): 
+            saved_diaet = [saved_diaet] # Repariert alte Profile
+            
+        p_diaet = st.multiselect("Ernährungsweise (Mehrfachwahl möglich):", diaet_optionen, default=saved_diaet)
+        
         p_vermeiden = st.multiselect(
             "Zutaten vermeiden:",
-            ["Nüsse", "Eier", "Soja", "Pilze", "Oliven", "Fisch", "Tomaten", "Koriander", "Meeresfrüchte", "Paprika"],
-            default=vermeiden_default
+            vermeiden_optionen,
+            default=current_data.get("vermeiden", [])
         )
 
         st.write("### 4. Geräte & Ziele")
-        geraete_liste = ["Backofen", "Mikrowelle", "Mixer", "Herd", "Air Fryer", "Thermomix", "Slow Cooker"]
-        p_geraete = st.multiselect("Geräte:", geraete_liste, default=current_data.get("geraete", ["Herd", "Backofen"]))
+        geraete_liste = sorted(["Backofen", "Mikrowelle", "Mixer", "Herd", "Air Fryer", "Thermomix", "Slow Cooker", "Dampfgarer", "Grill"])
+        p_geraete = st.multiselect("Geräte:", geraete_liste, default=current_data.get("geraete", ["Backofen", "Herd"]))
 
-        ziele_liste = ["Geld sparen", "Weniger Fleisch", "Leichte Küche", "Neue Rezepte entdecken", "Proteinreich (Sport)", "Einkäufe minimieren"]
+        ziele_liste = sorted(["Geld sparen", "Weniger Fleisch", "Leichte Küche", "Neue Rezepte entdecken", "Proteinreich (Sport)", "Einkäufe minimieren", "Schnelle Küche (<20 Min)"])
         p_ziele = st.multiselect("Standard-Ziele:", ziele_liste, default=current_data.get("ziele", ["Geld sparen"]))
         
-        supermarkt_liste = ["Aldi", "Lidl", "Rewe", "Edeka", "Marktkauf", "Hit", "Netto", "Penny", "Kaufland"]
+        supermarkt_liste = sorted(["Aldi", "Lidl", "Rewe", "Edeka", "Marktkauf", "Hit", "Netto", "Penny", "Kaufland", "DM/Rossmann"])
         p_shops = st.multiselect("Supermärkte:", supermarkt_liste, default=current_data.get("shops", ["Aldi", "Rewe"]))
 
         st.write("### 5. Vorrat (Immer da)")
@@ -146,7 +149,7 @@ with st.expander("⚙️ Profil-Einstellungen & Presets bearbeiten", expanded=is
                     "kinder_ueber3": p_kinder_ueber3,
                     "kinder_unter3": p_kinder_unter3,
                     "besonderheiten": p_besonderheiten,
-                    "diaet": p_diaet,
+                    "diaet": p_diaet,  # Ist jetzt eine Liste []
                     "vermeiden": p_vermeiden,
                     "geraete": p_geraete,
                     "ziele": p_ziele,
@@ -155,20 +158,17 @@ with st.expander("⚙️ Profil-Einstellungen & Presets bearbeiten", expanded=is
                 }
                 save_profile(profile_name_input, new_profile_data)
                 
-                # TRICK: Wir setzen das neue Profil als "aktiv" im Session State
                 st.session_state.selected_profile_key = profile_name_input
-                
                 st.success(f"Profil '{profile_name_input}' gespeichert!")
-                st.rerun() # Erzwingt sofortiges Neuladen der Seite mit den neuen Daten
+                st.rerun()
 
-# --- WOCHENPLANER (NUR SICHTBAR WENN PROFIL GELADEN) ---
+# --- PLANER ---
 if not is_new_profile:
     st.divider()
     st.header(f"📅 Planung für: {selected_profile_name}")
     
     col_input1, col_input2 = st.columns(2)
     with col_input1:
-        # ZEIT-SLIDER UPDATE: 0-120 in 5er Schritten
         zeit_input = st.slider("Zeit pro Tag (Min)?", 0, 120, 30, step=5)
         wochen_besonderheit = st.text_input("Was steht diese Woche an?", "Samstag Grillen, Sonntag Oma zu Besuch")
     with col_input2:
@@ -184,14 +184,17 @@ if not is_new_profile:
     if generate_btn:
         with st.spinner("KI analysiert Profil, Vorrat, Prospekte und Wünsche..."):
             
-            # PROMPT BAUEN
+            # --- DATEN VORBEREITEN FÜR PROMPT ---
+            # Da 'diaet' jetzt eine Liste ist, müssen wir sie zu einem String verbinden
+            diaet_str = ", ".join(current_data['diaet']) if isinstance(current_data['diaet'], list) else current_data['diaet']
+            
             prompt = f"""
             Du bist der 'Food & Family Manager' - ein intelligenter KI-Koch.
             
             1. FESTES PROFIL (immer beachten):
             - Personen: {current_data['erwachsene']} Erw, {current_data['kinder_ueber3']} Kinder (>3), {current_data['kinder_unter3']} Kinder (<3).
             - WICHTIGE BESONDERHEITEN: {current_data.get('besonderheiten', 'Keine')}
-            - Ernährung: {current_data['diaet']}
+            - Ernährung: {diaet_str}
             - No-Gos: {', '.join(current_data['vermeiden'])}
             - Geräte: {', '.join(current_data['geraete'])}
             - Supermärkte: {', '.join(current_data['shops'])}
@@ -212,7 +215,6 @@ if not is_new_profile:
             Output bitte schön formatiert mit Markdown. Nutze Emojis.
             """
             
-            # Daten für KI vorbereiten
             content_parts = [prompt]
             
             if kuehlschrank_img:
