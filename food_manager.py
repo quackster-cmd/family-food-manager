@@ -6,19 +6,19 @@ import os
 import datetime
 
 # --- KONFIGURATION ---
-st.set_page_config(page_title="Food & Family Manager", page_icon="🍽️", layout="wide")
+st.set_page_config(page_title="Food & Family Manager Pro", page_icon="👑", layout="wide")
 
 # --- CSS / DESIGN ---
 st.markdown("""
     <style>
-    /* 1. HAUPTTITEL */
+    /* 1. HAUPTTITEL (Golden für Pro) */
     .main-title {
         text-align: center;
         padding: 10px;
         margin-bottom: 20px;
         font-size: 3rem;
         font-weight: 900;
-        background: -webkit-linear-gradient(45deg, #FF6B6B, #4ECDC4);
+        background: -webkit-linear-gradient(45deg, #FFD700, #FFA500);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
     }
@@ -29,9 +29,7 @@ st.markdown("""
         font-weight: 800;
         margin-top: 30px;
         margin-bottom: 20px;
-        background: -webkit-linear-gradient(45deg, #FF6B6B, #4ECDC4);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
+        color: #FFA500;
         border-bottom: 2px solid #f0f0f0;
         padding-bottom: 10px;
     }
@@ -39,11 +37,11 @@ st.markdown("""
     /* 3. INTRO BOX */
     .intro-box {
         padding: 15px;
-        background-color: rgba(78, 205, 196, 0.1);
+        background-color: rgba(255, 165, 0, 0.1);
         border-radius: 10px;
         margin-bottom: 25px;
         font-style: italic;
-        border-left: 5px solid #4ECDC4;
+        border-left: 5px solid #FFA500;
     }
     
     /* 4. SAVED PLAN BOX */
@@ -98,7 +96,6 @@ def delete_profile(name):
         del profiles[name]
         save_json(PROFILE_FILE, profiles)
 
-# Speichert den fertigen Wochenplan
 def save_week_plan(profile, week_key, plan_data):
     plans = load_json(PLANS_FILE)
     if profile not in plans:
@@ -142,7 +139,6 @@ with st.sidebar:
 
     selected_profile_name = st.selectbox("Profil wählen", optionen, key="selected_profile_key")
 
-    # KW AUSWAHL (Nur wenn Profil existiert)
     week_key = None
     selected_week_label = ""
     
@@ -156,15 +152,12 @@ with st.sidebar:
         w1_label = f"KW {week} (Aktuell)"
         w2_label = f"KW {week + 1} (Nächste)"
         
-        # Default Logik für Radio Button
         if 'selected_week_opt' not in st.session_state:
             st.session_state.selected_week_opt = w1_label
             
         selected_week_opt = st.radio("Zeitraum:", [w1_label, w2_label], key="week_radio")
         
-        # Key generieren (z.B. "2026-W07")
         sel_week_num = week if "Aktuell" in selected_week_opt else week + 1
-        # Jahreswechsel-Check (Simpel)
         sel_year = year
         if sel_week_num > 52: 
             sel_week_num = 1
@@ -173,7 +166,6 @@ with st.sidebar:
         week_key = f"{sel_year}-W{sel_week_num}"
         selected_week_label = selected_week_opt
 
-        # Profil Löschen
         st.divider()
         with st.expander("Gefahrenzone"):
             if st.button(f"🗑️ Profil löschen"):
@@ -182,7 +174,7 @@ with st.sidebar:
                 st.rerun()
 
 # --- UI: HAUPTBEREICH ---
-st.markdown('<div class="main-title">🍽️ Food & Family<br>Manager</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-title">🍽️ Food & Family<br>Manager (Pro)</div>', unsafe_allow_html=True)
 
 current_data = {}
 is_new_profile = (selected_profile_name == "Neues Profil erstellen")
@@ -192,7 +184,6 @@ if is_new_profile:
     st.info("🆕 Bitte erstelle zuerst ein Profil.")
     profile_name_input = st.text_input("Profilname", "Meine Familie")
 
-    # PROFIL BEARBEITEN (OFFEN)
     with st.expander("⚙️ Profil erstellen", expanded=True):
         with st.form("preset_form"):
             st.write("### 1. Wer isst mit?")
@@ -243,14 +234,11 @@ if is_new_profile:
 else:
     current_data = profiles[selected_profile_name]
     
-    # Prüfen: Gibt es schon einen gespeicherten Plan für diese KW?
     saved_plan = get_week_plan(selected_profile_name, week_key)
     
     if saved_plan:
-        # --- ANSICHT: GESPEICHERTER PLAN ---
         st.markdown(f'<div class="saved-box">✅ Plan für <b>{selected_week_label}</b> ist eingeloggt!</div>', unsafe_allow_html=True)
         
-        # Einkaufsliste und Rezepte anzeigen
         st.markdown('<div class="section-title">🛒 Deine Einkaufsliste</div>', unsafe_allow_html=True)
         st.markdown(saved_plan['shopping_list'])
         
@@ -267,9 +255,7 @@ else:
             st.rerun()
             
     else:
-        # --- ANSICHT: PLANER (DRAFT MODE) ---
-        
-        # PROFIL EDIT (Eingeklappt)
+        # --- PLANER ---
         with st.expander("⚙️ Profil bearbeiten", expanded=False):
             with st.form("preset_form_edit"):
                 st.write("### 1. Wer isst mit?")
@@ -340,7 +326,6 @@ else:
         if st.session_state.recipe_slots:
             current_slots = st.session_state.recipe_slots
             
-            # Slider Sync
             if len(current_slots) < days_to_plan:
                 for i in range(days_to_plan - len(current_slots)):
                     current_slots.append({'day': len(current_slots)+1, 'content': None, 'locked': False})
@@ -351,7 +336,7 @@ else:
             slots_to_fill = [i for i, slot in enumerate(current_slots) if not slot['content']]
             
             if slots_to_fill:
-                with st.spinner(f"Der KI-Koch brutzelt {len(slots_to_fill)} neue Ideen..."):
+                with st.spinner(f"Der KI-Profi (2.5) brutzelt {len(slots_to_fill)} neue Ideen..."):
                     
                     locked_content = [slot['content'] for slot in current_slots if slot['locked'] and slot['content']]
                     locked_text_block = "\n---\n".join(locked_content) if locked_content else "Keine."
@@ -359,9 +344,9 @@ else:
                     diaet_str = ", ".join(current_data['diaet']) if isinstance(current_data['diaet'], list) else current_data['diaet']
                     vermeiden_str = ", ".join(current_data.get('vermeiden_select', [])) + " " + current_data.get('vermeiden_text', "")
                     
-                    # WICHTIG: Hier steht jetzt korrekt gemini-pro
+                    # --- HIER IST DIE POWER: GEMINI 2.5 FLASH ---
                     prompt = f"""
-                    Du bist der Food Manager.
+                    Du bist der Food Manager (Pro Edition).
                     PROFIL: {current_data['erwachsene']} Erw, {current_data['kinder_ueber3']} Kind(>3), {current_data['kinder_unter3']} Kind(<3).
                     Ernährung: {diaet_str} (No-Gos: {vermeiden_str}). 
                     Vorrat: {current_data['vorrat']}. Ziele: {', '.join(current_data['ziele'])}.
@@ -387,8 +372,8 @@ else:
                         for p in prospekt_files: content.extend([Image.open(p), "Prospekt"])
 
                     try:
-                        # WICHTIG: MODELLWECHSEL AUF gemini-pro
-                        model = genai.GenerativeModel('gemini-pro')
+                        # WICHTIG: 2.5 FLASH!
+                        model = genai.GenerativeModel('gemini-2.5-flash')
                         response = model.generate_content(content)
                         parts = response.text.split("---TRENNER---")
                         
@@ -441,12 +426,12 @@ else:
                 for slot in st.session_state.recipe_slots: slot['locked'] = True
                 
                 # 2. Liste generieren
-                with st.spinner("Erstelle finale Liste und speichere..."):
+                with st.spinner("Erstelle finale Liste mit Gemini 2.5..."):
                     all_text = "\n".join([s['content'] for s in st.session_state.recipe_slots if s['content']])
                     p_list = f"""Erstelle Einkaufsliste für:\n{all_text}\nSortiert nach Supermarkt-Bereich. Emojis. Vorrat ignorieren: {current_data['vorrat']}"""
                     try:
-                        # WICHTIG: MODELLWECHSEL AUF gemini-pro
-                        model = genai.GenerativeModel('gemini-pro')
+                        # WICHTIG: 2.5 FLASH!
+                        m = genai.GenerativeModel('gemini-2.5-flash')
                         res = m.generate_content(p_list)
                         final_list = res.text
                         
