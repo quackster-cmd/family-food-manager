@@ -6,19 +6,19 @@ import os
 import datetime
 
 # --- KONFIGURATION ---
-st.set_page_config(page_title="Food & Family Manager Pro", page_icon="👑", layout="wide")
+st.set_page_config(page_title="Food & Family Manager", page_icon="🍽️", layout="wide")
 
-# --- CSS / DESIGN ---
+# --- CSS / DESIGN (Das Original ist zurück!) ---
 st.markdown("""
     <style>
-    /* 1. HAUPTTITEL (Golden für Pro) */
+    /* 1. HAUPTTITEL (Original Türkis/Pink) */
     .main-title {
         text-align: center;
         padding: 10px;
         margin-bottom: 20px;
         font-size: 3rem;
         font-weight: 900;
-        background: -webkit-linear-gradient(45deg, #FFD700, #FFA500);
+        background: -webkit-linear-gradient(45deg, #FF6B6B, #4ECDC4);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
     }
@@ -29,7 +29,9 @@ st.markdown("""
         font-weight: 800;
         margin-top: 30px;
         margin-bottom: 20px;
-        color: #FFA500;
+        background: -webkit-linear-gradient(45deg, #FF6B6B, #4ECDC4);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
         border-bottom: 2px solid #f0f0f0;
         padding-bottom: 10px;
     }
@@ -37,11 +39,11 @@ st.markdown("""
     /* 3. INTRO BOX */
     .intro-box {
         padding: 15px;
-        background-color: rgba(255, 165, 0, 0.1);
+        background-color: rgba(78, 205, 196, 0.1);
         border-radius: 10px;
         margin-bottom: 25px;
         font-style: italic;
-        border-left: 5px solid #FFA500;
+        border-left: 5px solid #4ECDC4;
     }
     
     /* 4. SAVED PLAN BOX */
@@ -127,7 +129,16 @@ if 'recipe_slots' not in st.session_state:
 if 'intro_text' not in st.session_state:
     st.session_state.intro_text = ""
 
-# --- UI: SEITENLEISTE (MIT KW) ---
+# Hilfsfunktion um Titel und Inhalt zu trennen
+def split_recipe_content(content):
+    lines = content.split('\n')
+    # Wir nehmen an, die erste Zeile ist der Titel (wegen Prompt-Vorgabe)
+    title = lines[0].replace('#', '').strip() 
+    # Der Rest ist der Body
+    body = "\n".join(lines[1:])
+    return title, body
+
+# --- UI: SEITENLEISTE ---
 with st.sidebar:
     st.header("👤 Einstellungen")
     profiles = load_json(PROFILE_FILE)
@@ -174,7 +185,7 @@ with st.sidebar:
                 st.rerun()
 
 # --- UI: HAUPTBEREICH ---
-st.markdown('<div class="main-title">🍽️ Food & Family<br>Manager (Pro)</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-title">🍽️ Food & Family<br>Manager</div>', unsafe_allow_html=True)
 
 current_data = {}
 is_new_profile = (selected_profile_name == "Neues Profil erstellen")
@@ -237,17 +248,23 @@ else:
     saved_plan = get_week_plan(selected_profile_name, week_key)
     
     if saved_plan:
+        # --- GESPEICHERTER PLAN ---
         st.markdown(f'<div class="saved-box">✅ Plan für <b>{selected_week_label}</b> ist eingeloggt!</div>', unsafe_allow_html=True)
         
+        st.markdown('<div class="section-title">🍳 Deine Rezepte</div>', unsafe_allow_html=True)
+        
+        # Rezepte anzeigen (Eingeklappt)
+        for slot in saved_plan['recipes']:
+             title, body = split_recipe_content(slot['content'])
+             with st.container(border=True):
+                 st.markdown(f"**Tag {slot['day']}**: {title}")
+                 with st.expander("📖 Zubereitung & Zutaten anzeigen"):
+                     st.markdown(body)
+
+        # Einkaufsliste (Unten)
+        st.divider()
         st.markdown('<div class="section-title">🛒 Deine Einkaufsliste</div>', unsafe_allow_html=True)
         st.markdown(saved_plan['shopping_list'])
-        
-        st.divider()
-        st.markdown('<div class="section-title">🍳 Deine Rezepte</div>', unsafe_allow_html=True)
-        for slot in saved_plan['recipes']:
-             with st.container(border=True):
-                 st.markdown(f"**Tag {slot['day']}**")
-                 st.markdown(slot['content'])
 
         st.divider()
         if st.button("🗑️ Plan löschen & Neu machen"):
@@ -255,7 +272,7 @@ else:
             st.rerun()
             
     else:
-        # --- PLANER ---
+        # --- PLANER (DRAFT) ---
         with st.expander("⚙️ Profil bearbeiten", expanded=False):
             with st.form("preset_form_edit"):
                 st.write("### 1. Wer isst mit?")
@@ -336,7 +353,7 @@ else:
             slots_to_fill = [i for i, slot in enumerate(current_slots) if not slot['content']]
             
             if slots_to_fill:
-                with st.spinner(f"Der KI-Profi (2.5) brutzelt {len(slots_to_fill)} neue Ideen..."):
+                with st.spinner(f"Der KI-Koch (2.5) brutzelt {len(slots_to_fill)} neue Ideen..."):
                     
                     locked_content = [slot['content'] for slot in current_slots if slot['locked'] and slot['content']]
                     locked_text_block = "\n---\n".join(locked_content) if locked_content else "Keine."
@@ -344,9 +361,9 @@ else:
                     diaet_str = ", ".join(current_data['diaet']) if isinstance(current_data['diaet'], list) else current_data['diaet']
                     vermeiden_str = ", ".join(current_data.get('vermeiden_select', [])) + " " + current_data.get('vermeiden_text', "")
                     
-                    # --- HIER IST DIE POWER: GEMINI 2.5 FLASH ---
+                    # PROMPT (Gemini 2.5 Flash)
                     prompt = f"""
-                    Du bist der Food Manager (Pro Edition).
+                    Du bist der Food Manager.
                     PROFIL: {current_data['erwachsene']} Erw, {current_data['kinder_ueber3']} Kind(>3), {current_data['kinder_unter3']} Kind(<3).
                     Ernährung: {diaet_str} (No-Gos: {vermeiden_str}). 
                     Vorrat: {current_data['vorrat']}. Ziele: {', '.join(current_data['ziele'])}.
@@ -372,7 +389,7 @@ else:
                         for p in prospekt_files: content.extend([Image.open(p), "Prospekt"])
 
                     try:
-                        # WICHTIG: 2.5 FLASH!
+                        # POWER: Gemini 2.5 Flash
                         model = genai.GenerativeModel('gemini-2.5-flash')
                         response = model.generate_content(content)
                         parts = response.text.split("---TRENNER---")
@@ -398,21 +415,29 @@ else:
             
             for i, slot in enumerate(st.session_state.recipe_slots):
                 if slot['content']:
+                    # HIER IST DER TRICK: Titel trennen
+                    title_only, body_text = split_recipe_content(slot['content'])
+                    
                     with st.container(border=True):
                         c1, c2 = st.columns([5, 1])
                         is_locked = slot['locked']
                         with c1:
-                            if is_locked: st.success(f"✅ **Tag {i+1}**: FIXIERT")
-                            else: st.caption(f"Vorschlag für Tag {i+1}")
+                            if is_locked: 
+                                st.success(f"✅ **Tag {i+1}**: FIXIERT - {title_only}")
+                            else: 
+                                st.markdown(f"**Tag {i+1}**: {title_only}")
                         with c2:
                             if st.toggle("Lock", value=is_locked, key=f"lock_{i}", label_visibility="collapsed"):
                                 st.session_state.recipe_slots[i]['locked'] = True
                                 st.rerun()
                             else:
-                                if is_locked: # Nur rerun wenn sich was ändert
+                                if is_locked:
                                     st.session_state.recipe_slots[i]['locked'] = False
                                     st.rerun()
-                        st.markdown(slot['content'])
+                        
+                        # EINKLAPPEN!
+                        with st.expander("📖 Zubereitung & Zutaten anzeigen"):
+                            st.markdown(body_text)
 
             st.divider()
             c1, c2 = st.columns(2)
@@ -421,6 +446,7 @@ else:
                     if not slot['locked']: slot['content'] = None
                 st.rerun()
 
+            # BUTTON FÜR LISTE
             if c2.button("🛒 Einkaufsliste (Alles Einloggen)", type="primary", use_container_width=True):
                 # 1. Alles locken
                 for slot in st.session_state.recipe_slots: slot['locked'] = True
@@ -430,7 +456,6 @@ else:
                     all_text = "\n".join([s['content'] for s in st.session_state.recipe_slots if s['content']])
                     p_list = f"""Erstelle Einkaufsliste für:\n{all_text}\nSortiert nach Supermarkt-Bereich. Emojis. Vorrat ignorieren: {current_data['vorrat']}"""
                     try:
-                        # WICHTIG: 2.5 FLASH!
                         m = genai.GenerativeModel('gemini-2.5-flash')
                         res = m.generate_content(p_list)
                         final_list = res.text
@@ -441,6 +466,14 @@ else:
                             "recipes": st.session_state.recipe_slots
                         }
                         save_week_plan(selected_profile_name, week_key, plan_data)
+                        st.session_state.generated_list_draft = final_list # Für die Anzeige sofort nach Klick
                         st.rerun()
                     except Exception as e:
                         st.error(f"Fehler: {e}")
+            
+            # --- ANZEIGE DER EINKAUFSLISTE (JETZT GANZ UNTEN!) ---
+            # Wenn wir gerade auf den Button geklickt haben (Draft Mode)
+            if 'generated_list_draft' in st.session_state and st.session_state.generated_list_draft:
+                 st.divider()
+                 st.markdown('<div class="section-title">🛒 Deine Einkaufsliste</div>', unsafe_allow_html=True)
+                 st.markdown(st.session_state.generated_list_draft)
