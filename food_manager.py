@@ -4,6 +4,19 @@ from PIL import Image
 import json
 import os
 import datetime
+import streamlit as st
+import google.generativeai as genai
+import sys
+
+# --- DIAGNOSE START ---
+st.write(f"🐍 Python Version: {sys.version}")
+try:
+    st.write(f"🤖 Google GenAI Version: {genai.__version__}")
+except:
+    st.write("🤖 Google GenAI Version: Unbekannt (zu alt?)")
+# --- DIAGNOSE ENDE ---
+
+# ... hier geht dein normaler Code weiter ...
 
 # --- KONFIGURATION ---
 st.set_page_config(page_title="Food & Family Manager", page_icon="🍽️", layout="wide")
