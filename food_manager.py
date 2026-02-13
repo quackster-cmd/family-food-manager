@@ -12,7 +12,7 @@ st.set_page_config(page_title="Food & Family Manager", page_icon="🥑", layout=
 # --- CSS / DESIGN ---
 st.markdown("""
     <style>
-    /* 1. HAUPTTITEL */
+    /* 1. HAUPTTITEL (Original Style) */
     .main-title {
         text-align: center;
         padding: 10px;
@@ -37,7 +37,7 @@ st.markdown("""
         margin-top: 5px;
     }
     
-    /* 2. REZEPT TITEL */
+    /* 2. REZEPT TITEL (Schlicht & Lesbar) */
     .recipe-header {
         font-size: 1.6rem;
         font-weight: 700;
@@ -58,14 +58,21 @@ st.markdown("""
         padding-bottom: 10px;
     }
 
-    /* 4. BOXEN */
+    /* 4. INTRO BOX (Das Original-Grün!) */
     .intro-box {
         padding: 15px;
-        background-color: rgba(78, 205, 196, 0.1);
+        background-color: rgba(78, 205, 196, 0.15); /* Etwas kräftigeres Grün */
         border-radius: 10px;
         margin-bottom: 25px;
         font-style: italic;
+        color: #2c3e50; /* Dunkle Schrift für Lesbarkeit */
         border-left: 5px solid #4ECDC4;
+    }
+    @media (prefers-color-scheme: dark) {
+        .intro-box {
+            color: #ecf0f1;
+            background-color: rgba(78, 205, 196, 0.25);
+        }
     }
     
     .saved-box {
@@ -141,6 +148,7 @@ def delete_week_plan(profile, week_key):
 def split_recipe_content(content):
     if not content: return "", ""
     lines = content.split('\n')
+    # Titel bereinigen
     title = lines[0].replace('#', '').strip() 
     body = "\n".join(lines[1:])
     return title, body
@@ -202,7 +210,7 @@ with st.sidebar:
 st.markdown("""
 <div class="main-title">
     <span class="brand">Food & Family</span>
-    <span class="subtitle">Manager v1.01</span>
+    <span class="subtitle">Manager</span>
 </div>
 """, unsafe_allow_html=True)
 
@@ -333,9 +341,6 @@ else:
         slots_to_fill = [i for i, slot in enumerate(current_slots) if slot['content'] is None]
         
         if slots_to_fill:
-            st.toast("👨‍🍳 Der digitale Koch legt los! Bitte kurz warten...", icon="⏳")
-            
-            # HIER DIE ÄNDERUNG: KEINE BAUSTELLE MEHR, SONDERN LECKERES ESSEN
             with st.spinner(f"Der digitale Koch brutzelt {len(slots_to_fill)} neue Ideen... 🥘"):
                 
                 locked_content = [slot['content'] for slot in current_slots if slot['locked'] and slot['content']]
@@ -357,9 +362,11 @@ else:
                 Generiere EXAKT {len(slots_to_fill)} NEUE Rezepte für die leeren Tage.
                 
                 FORMAT (STRIKT!):
-                - Trenne Rezepte mit: "---TRENNER---"
-                - TITEL-ZEILE: Muss IMMER mit einem passenden EMOJI beginnen.
-                - TITEL-MARKER: Die erste Zeile jedes Rezepts muss den Titel enthalten.
+                1. Schreibe GANZ AM ANFANG eine kurze Begrüßung (max 2 Sätze) als Intro.
+                2. Schreibe DANACH exakt: "---INTRO_ENDE---"
+                3. DANN kommen die Rezepte, getrennt mit: "---TRENNER---"
+                4. REZEPT-TITEL-ZEILE: Muss IMMER mit einem passenden EMOJI beginnen.
+                5. REZEPT-TITEL-MARKER: Die erste Zeile jedes Rezepts muss der Titel sein.
                 
                 SITUATION: Zeit: {zeit_input} Min. Wünsche: {manuelle_reste}.
                 """
@@ -372,13 +379,22 @@ else:
                 try:
                     model = genai.GenerativeModel('gemini-2.5-flash')
                     response = model.generate_content(content)
-                    parts = response.text.split("---TRENNER---")
+                    raw_text = response.text
                     
+                    # 1. INTRO ABTRENNEN
+                    if "---INTRO_ENDE---" in raw_text:
+                        intro_part, recipes_part = raw_text.split("---INTRO_ENDE---")
+                        st.session_state.intro_text = intro_part.strip()
+                    else:
+                        recipes_part = raw_text
+                    
+                    # 2. REZEPTE SPLITTEN
+                    parts = recipes_part.split("---TRENNER---")
                     valid_parts = [p.strip() for p in parts if p.strip()]
                     
                     fill_idx = 0
                     for part in valid_parts:
-                        if len(part) < 50: continue 
+                        if len(part) < 20: continue # Zu kurz für ein Rezept
                         
                         if fill_idx < len(slots_to_fill):
                             target_slot_idx = slots_to_fill[fill_idx]
@@ -387,7 +403,7 @@ else:
                     
                     save_week_plan(selected_profile_name, week_key, {
                         "recipes": st.session_state.recipe_slots,
-                        "intro": "Hier sind deine Vorschläge!",
+                        "intro": st.session_state.intro_text,
                         "shopping_list": st.session_state.get('generated_list_draft')
                     })
                     
@@ -398,6 +414,11 @@ else:
 
     # --- ANZEIGE ---
     if st.session_state.recipe_slots:
+        
+        # INTRO BOX ANZEIGEN (Grün!)
+        if st.session_state.intro_text:
+            st.markdown(f'<div class="intro-box">{st.session_state.intro_text}</div>', unsafe_allow_html=True)
+            
         st.markdown(f'<div class="section-title">🍳 Dein Menü ({len(st.session_state.recipe_slots)} Gerichte)</div>', unsafe_allow_html=True)
         
         for i, slot in enumerate(st.session_state.recipe_slots):
@@ -416,7 +437,7 @@ else:
                             st.session_state.recipe_slots[i]['locked'] = True
                             save_week_plan(selected_profile_name, week_key, {
                                 "recipes": st.session_state.recipe_slots,
-                                "intro": "",
+                                "intro": st.session_state.intro_text,
                                 "shopping_list": st.session_state.get('generated_list_draft')
                             })
                             st.rerun()
@@ -425,7 +446,7 @@ else:
                                 st.session_state.recipe_slots[i]['locked'] = False
                                 save_week_plan(selected_profile_name, week_key, {
                                     "recipes": st.session_state.recipe_slots,
-                                    "intro": "",
+                                    "intro": st.session_state.intro_text,
                                     "shopping_list": st.session_state.get('generated_list_draft')
                                 })
                                 st.rerun()
@@ -443,8 +464,7 @@ else:
             st.rerun()
 
         if c2.button("🛒 Einkaufsliste erstellen", type="primary", use_container_width=True):
-            st.toast("🛒 Einkaufsliste wird geschrieben...", icon="📝")
-            
+            # Alle locken
             for slot in st.session_state.recipe_slots:
                 slot['locked'] = True
             
@@ -460,7 +480,7 @@ else:
                     
                     save_week_plan(selected_profile_name, week_key, {
                         "recipes": st.session_state.recipe_slots,
-                        "intro": "",
+                        "intro": st.session_state.intro_text,
                         "shopping_list": final_list
                     })
                     st.rerun()
