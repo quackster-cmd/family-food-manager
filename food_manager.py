@@ -9,7 +9,7 @@ import time
 # --- KONFIGURATION ---
 st.set_page_config(page_title="Food & Family Manager", page_icon="🥑", layout="wide")
 
-# --- CSS / DESIGN (JETZT DARK-MODE READY!) ---
+# --- CSS / DESIGN ---
 st.markdown("""
     <style>
     /* 1. HAUPTTITEL */
@@ -22,7 +22,6 @@ st.markdown("""
     .main-title span.brand {
         font-size: 3rem;
         font-weight: 900;
-        /* Der Gradient sieht auf Schwarz UND Weiß gut aus */
         background: -webkit-linear-gradient(45deg, #FF6B6B, #4ECDC4);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
@@ -32,9 +31,8 @@ st.markdown("""
     .main-title span.subtitle {
         font-size: 1.5rem;
         font-weight: 700;
-        /* 'inherit' nimmt automatisch die Farbe des Themes (Schwarz oder Weiß) */
         color: inherit; 
-        opacity: 0.7; /* Leicht transparent sieht edel aus */
+        opacity: 0.7;
         display: block;
         margin-top: 5px;
     }
@@ -44,7 +42,7 @@ st.markdown("""
         font-size: 1.6rem;
         font-weight: 700;
         margin-bottom: 5px;
-        color: inherit; /* Passt sich automatisch an Dark/Light an */
+        color: inherit; 
     }
 
     /* 3. ABSCHNITTS-TITEL */
@@ -56,18 +54,14 @@ st.markdown("""
         background: -webkit-linear-gradient(45deg, #FF6B6B, #4ECDC4);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
-        /* Border passt sich an: Hellgrau im Lightmode, Dunkelgrau im Darkmode */
         border-bottom: 2px solid rgba(128, 128, 128, 0.2);
         padding-bottom: 10px;
     }
 
-    /* 4. INTRO BOX & SAVED BOX (Transparenz ist der Trick!) */
-    /* Wir nutzen rgba(), damit der Hintergrund durchscheint. 
-       Das sieht auf Weiß gut aus und auf Schwarz stört es nicht. */
-    
+    /* 4. BOXEN */
     .intro-box {
         padding: 15px;
-        background-color: rgba(78, 205, 196, 0.1); /* 10% Türkis */
+        background-color: rgba(78, 205, 196, 0.1);
         border-radius: 10px;
         margin-bottom: 25px;
         font-style: italic;
@@ -76,18 +70,12 @@ st.markdown("""
     
     .saved-box {
         padding: 15px;
-        background-color: rgba(46, 204, 113, 0.15); /* 15% Grün */
+        background-color: rgba(46, 204, 113, 0.15);
         border: 1px solid #2ecc71;
         border-radius: 8px;
         text-align: center;
         margin-bottom: 20px;
         font-weight: bold;
-    }
-    
-    /* Extra Anpassung für Links/Expander im Dark Mode falls nötig */
-    @media (prefers-color-scheme: dark) {
-        /* Hier könnten wir spezifische Dark-Mode Fixes machen, 
-           aber 'inherit' regelt das meiste schon! */
     }
     </style>
     """, unsafe_allow_html=True)
@@ -214,7 +202,7 @@ with st.sidebar:
 st.markdown("""
 <div class="main-title">
     <span class="brand">Food & Family</span>
-    <span class="subtitle">Manager</span>
+    <span class="subtitle">Manager v1.01</span>
 </div>
 """, unsafe_allow_html=True)
 
@@ -347,7 +335,8 @@ else:
         if slots_to_fill:
             st.toast("👨‍🍳 Der digitale Koch legt los! Bitte kurz warten...", icon="⏳")
             
-            with st.spinner(f"🚧 BITTE WARTEN! Der digitale Koch brutzelt {len(slots_to_fill)} neue Ideen... 🚧"):
+            # HIER DIE ÄNDERUNG: KEINE BAUSTELLE MEHR, SONDERN LECKERES ESSEN
+            with st.spinner(f"Der digitale Koch brutzelt {len(slots_to_fill)} neue Ideen... 🥘"):
                 
                 locked_content = [slot['content'] for slot in current_slots if slot['locked'] and slot['content']]
                 locked_text_block = "\n---\n".join(locked_content) if locked_content else "Keine."
@@ -419,7 +408,6 @@ else:
                     c1, c2 = st.columns([5, 1])
                     is_locked = slot['locked']
                     with c1:
-                        # Hier ist die dynamische Dark/Light Überschrift
                         st.markdown(f"<div class='recipe-header'>{title_only}</div>", unsafe_allow_html=True)
                         if is_locked: 
                             st.caption("🔒 Fixiert")
