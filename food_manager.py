@@ -8,10 +8,10 @@ import datetime
 # --- KONFIGURATION ---
 st.set_page_config(page_title="Food & Family Manager", page_icon="🍽️", layout="wide")
 
-# --- CSS / DESIGN ---
+# --- CSS / DESIGN (Dezent & Aufgeräumt) ---
 st.markdown("""
     <style>
-    /* 1. HAUPTTITEL - Optimiert für Mobile */
+    /* 1. HAUPTTITEL - Schlicht und schick */
     .main-title {
         text-align: center;
         padding: 10px;
@@ -19,62 +19,59 @@ st.markdown("""
         line-height: 1.2;
     }
     .main-title span.brand {
-        font-size: 3rem;
-        font-weight: 900;
-        background: -webkit-linear-gradient(45deg, #FF6B6B, #4ECDC4);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        white-space: nowrap; /* Erzwingt eine Zeile für Food & Family */
+        font-size: 2.5rem;
+        font-weight: 800;
+        color: #333; /* Dunkelgrau statt Bunt */
+        white-space: nowrap;
         display: inline-block;
     }
+    /* Dark Mode Anpassung für Titel */
+    @media (prefers-color-scheme: dark) {
+        .main-title span.brand {
+            color: #f0f0f0;
+        }
+    }
+    
     .main-title span.subtitle {
-        font-size: 2.5rem;
-        font-weight: 700;
-        color: #555;
-        display: block; /* Manager in neue Zeile */
+        font-size: 1.5rem;
+        font-weight: 400;
+        color: #666;
+        display: block;
     }
     
     /* 2. ABSCHNITTS-TITEL */
     .section-title {
-        font-size: 2.2rem;
-        font-weight: 800;
+        font-size: 1.8rem;
+        font-weight: 700;
         margin-top: 30px;
-        margin-bottom: 20px;
-        background: -webkit-linear-gradient(45deg, #FF6B6B, #4ECDC4);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        border-bottom: 2px solid #f0f0f0;
-        padding-bottom: 10px;
+        margin-bottom: 15px;
+        color: #333;
+        border-bottom: 1px solid #ddd;
+        padding-bottom: 5px;
+    }
+    @media (prefers-color-scheme: dark) {
+        .section-title { color: #f0f0f0; }
     }
 
-    /* 3. REZEPT TITEL (Das Überraschungs-Element!) */
-    .recipe-header {
-        font-size: 1.8rem; /* Schön groß */
-        font-weight: 800;
-        margin-bottom: 5px;
-        background: -webkit-linear-gradient(90deg, #FF6B6B, #4ECDC4);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-    }
-
-    /* 4. INTRO BOX */
+    /* 3. INTRO BOX */
     .intro-box {
         padding: 15px;
         background-color: rgba(78, 205, 196, 0.1);
-        border-radius: 10px;
+        border-radius: 8px;
         margin-bottom: 25px;
         font-style: italic;
-        border-left: 5px solid #4ECDC4;
+        border-left: 4px solid #4ECDC4;
     }
     
-    /* 5. SAVED PLAN BOX */
+    /* 4. SAVED PLAN BOX */
     .saved-box {
-        padding: 20px;
-        background-color: rgba(46, 204, 113, 0.1);
-        border: 2px solid #2ecc71;
-        border-radius: 10px;
+        padding: 15px;
+        background-color: rgba(46, 204, 113, 0.15);
+        border: 1px solid #2ecc71;
+        border-radius: 8px;
         text-align: center;
         margin-bottom: 20px;
+        font-weight: bold;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -141,7 +138,7 @@ def delete_week_plan(profile, week_key):
 def split_recipe_content(content):
     if not content: return "", ""
     lines = content.split('\n')
-    # Wir nehmen an, die erste Zeile ist der Titel (Markdown # oder ## entfernen)
+    # Titel bereinigen (Markdown entfernen, aber Emoji lassen)
     title = lines[0].replace('#', '').strip() 
     body = "\n".join(lines[1:])
     return title, body
@@ -177,18 +174,19 @@ with st.sidebar:
     
     if selected_profile_name != "Neues Profil erstellen":
         st.divider()
-        st.subheader("📅 Woche planen")
+        st.subheader("📅 Zeitplanung")
         
         today = datetime.date.today()
         year, week, _ = today.isocalendar()
         
-        w1_label = f"KW {week} (Aktuell)"
-        w2_label = f"KW {week + 1} (Nächste)"
+        # Wortlaut angepasst: Kalenderwoche ausgeschrieben
+        w1_label = f"Kalenderwoche {week} (Aktuell)"
+        w2_label = f"Kalenderwoche {week + 1} (Nächste)"
         
         if 'selected_week_opt' not in st.session_state:
             st.session_state.selected_week_opt = w1_label
             
-        selected_week_opt = st.radio("Zeitraum:", [w1_label, w2_label], key="week_radio")
+        selected_week_opt = st.radio("Woche wählen:", [w1_label, w2_label], key="week_radio")
         
         sel_week_num = week if "Aktuell" in selected_week_opt else week + 1
         sel_year = year
@@ -198,13 +196,6 @@ with st.sidebar:
             
         week_key = f"{sel_year}-W{sel_week_num}"
         selected_week_label = selected_week_opt
-
-        st.divider()
-        with st.expander("Gefahrenzone"):
-            if st.button(f"🗑️ Profil löschen"):
-                delete_profile(selected_profile_name)
-                st.session_state.profile_to_select = "Neues Profil erstellen"
-                st.rerun()
 
 # --- UI: HAUPTBEREICH ---
 st.markdown("""
@@ -279,14 +270,13 @@ else:
     if saved_plan and not st.session_state.recipe_slots:
         st.session_state.recipe_slots = saved_plan.get('recipes', [])
         st.session_state.intro_text = saved_plan.get('intro', "")
-        # Falls schon eine Einkaufsliste da ist, speichern wir sie auch
         if 'shopping_list' in saved_plan and saved_plan['shopping_list']:
              st.session_state.generated_list_draft = saved_plan['shopping_list']
 
     # --- PLANER / DRAFT MODE ---
     
     # Profil Editieren
-    with st.expander("⚙️ Profil bearbeiten", expanded=False):
+    with st.expander("⚙️ Profil / Einstellungen", expanded=False):
         with st.form("preset_form_edit"):
             st.write("### 1. Wer isst mit?")
             c1, c2, c3 = st.columns(3)
@@ -324,6 +314,15 @@ else:
                 st.session_state.recipe_slots = []
                 st.session_state.intro_text = ""
                 st.rerun()
+        
+        # HIER IST JETZT DIE "GEFAHRENZONE" VERSTECKT
+        st.write("")
+        st.markdown("---")
+        st.write("**Gefahrenzone**")
+        if st.button(f"🗑️ Profil '{selected_profile_name}' löschen"):
+            delete_profile(selected_profile_name)
+            st.session_state.profile_to_select = "Neues Profil erstellen"
+            st.rerun()
 
     st.divider()
     st.subheader(f"Planung für {selected_week_label}")
@@ -335,7 +334,7 @@ else:
         col_in1, col_in2 = st.columns(2)
         days_to_plan = col_in1.slider("Anzahl Tage planen:", 1, 7, 4)
         zeit_input = col_in1.slider("Zeit pro Tag (Min)?", 0, 120, 30, step=5)
-        manuelle_reste = col_in2.text_area("Wünsche:", "Alles offen", height=100) # "Reste" entfernt
+        manuelle_reste = col_in2.text_area("Wünsche:", "Alles offen", height=100)
         
         c_up1, c_up2 = st.columns(2)
         kuehlschrank_img = c_up1.file_uploader("Kühlschrank", type=["jpg", "png", "jpeg"])
@@ -383,9 +382,10 @@ else:
                 2. Achte auf Abwechslung zu den fixierten Rezepten!
                 3. Schreibe GANZ AM ANFANG eine kurze Begrüßung.
                 
-                FORMAT:
+                FORMAT (STRIKT!):
                 - Trenner: "---TRENNER---"
-                - TITEL MUSS SO STARTEN: "### 🥘 Titel"
+                - TITEL-ZEILE: Muss IMMER mit einem passenden EMOJI beginnen. Beispiel: "🍝 Spaghetti Bolognese" oder "🥗 Bunter Salat".
+                - TITEL-MARKER: Beginne die Titelzeile mit "### ".
                 
                 SITUATION: Zeit: {zeit_input} Min. Wünsche: {manuelle_reste}.
                 """
@@ -413,7 +413,7 @@ else:
                     draft_data = {
                         "recipes": st.session_state.recipe_slots,
                         "intro": st.session_state.intro_text,
-                        "shopping_list": None # Noch keine Liste
+                        "shopping_list": None 
                     }
                     save_week_plan(selected_profile_name, week_key, draft_data)
                     
@@ -436,14 +436,13 @@ else:
                     c1, c2 = st.columns([5, 1])
                     is_locked = slot['locked']
                     with c1:
-                        # Hier nutzen wir das neue CSS für den Titel
-                        st.markdown(f"<div class='recipe-header'>{title_only}</div>", unsafe_allow_html=True)
+                        # Standard Markdown Titel, kein wildes CSS mehr
+                        st.markdown(f"### {title_only}")
                         if is_locked: 
                             st.caption("🔒 Fixiert")
                     with c2:
                         if st.toggle("Lock", value=is_locked, key=f"lock_{i}", label_visibility="collapsed"):
                             st.session_state.recipe_slots[i]['locked'] = True
-                            # Sofort Speichern beim Locken
                             save_week_plan(selected_profile_name, week_key, {
                                 "recipes": st.session_state.recipe_slots, 
                                 "intro": st.session_state.intro_text,
@@ -453,7 +452,6 @@ else:
                         else:
                             if is_locked:
                                 st.session_state.recipe_slots[i]['locked'] = False
-                                # Sofort Speichern beim Ent-Locken
                                 save_week_plan(selected_profile_name, week_key, {
                                     "recipes": st.session_state.recipe_slots, 
                                     "intro": st.session_state.intro_text,
@@ -469,16 +467,16 @@ else:
         if c1.button("🎲 Offene Gerichte neu würfeln", use_container_width=True):
             for slot in st.session_state.recipe_slots:
                 if not slot['locked']: slot['content'] = None
-            # Wir speichern hier NICHTS, das passiert im Rerun beim Generieren
             st.rerun()
 
         # BUTTON FÜR LISTE
-        if c2.button("🛒 Einkaufsliste (Alles Einloggen)", type="primary", use_container_width=True):
-            # 1. Alles locken
-            for slot in st.session_state.recipe_slots: slot['locked'] = True
+        if c2.button("🛒 Einkaufsliste (Alles Einloggen & Erstellen)", type="primary", use_container_width=True):
+            # 1. Alles locken (Egal was vorher war)
+            for slot in st.session_state.recipe_slots: 
+                slot['locked'] = True
             
             # 2. Liste generieren
-            with st.spinner("Erstelle finale Liste..."):
+            with st.spinner("Logge Gerichte ein und schreibe Liste..."):
                 all_text = "\n".join([s['content'] for s in st.session_state.recipe_slots if s['content']])
                 p_list = f"""Erstelle Einkaufsliste für:\n{all_text}\nSortiert nach Supermarkt-Bereich. Emojis. Vorrat ignorieren: {current_data['vorrat']}"""
                 try:
@@ -504,7 +502,6 @@ else:
                 st.markdown('<div class="section-title">🛒 Deine Einkaufsliste</div>', unsafe_allow_html=True)
                 st.markdown(st.session_state.generated_list_draft)
                 
-                # Option zum Löschen des Plans
                 st.write("")
                 if st.button("🗑️ Plan & Liste löschen"):
                     delete_week_plan(selected_profile_name, week_key)
