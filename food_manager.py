@@ -205,6 +205,12 @@ with st.sidebar:
                 new_rec_text = st.text_area("Rezept-Text oder Link einfügen")
                 if new_rec_text: new_rec_content = [f"Formatiere dies sauber als Rezept: {new_rec_text}"]
             
+            # NEU: Bewertung vor dem Speichern
+            up_rating_opts = ["0 Sterne (Nicht wiederholen)", "1 Stern (Selten)", "2 Sterne (Lecker)", "3 Sterne (Lieblingsessen)"]
+            # Default auf 2 Sterne (Lecker), da man es ja extra hochlädt
+            up_rating_str = st.selectbox("Bewertung:", up_rating_opts, index=2)
+            up_rating_val = up_rating_opts.index(up_rating_str)
+
             if new_rec_content and st.button("💾 In Datenbank speichern"):
                 with st.spinner("Analysiere & Speichere..."):
                     try:
@@ -213,8 +219,8 @@ with st.sidebar:
                         res = m.generate_content(p)
                         title, body = split_recipe_content(res.text)
                         
-                        save_recipe_to_db(title, res.text, rating=0, source="Upload")
-                        st.success(f"'{title}' gespeichert!")
+                        save_recipe_to_db(title, res.text, rating=up_rating_val, source="Upload")
+                        st.success(f"'{title}' mit {up_rating_val} Sternen gespeichert!")
                     except Exception as e:
                         st.error(f"Fehler: {e}")
 
@@ -287,7 +293,7 @@ else:
         st.session_state.intro_text = saved_plan.get('intro', "")
         if 'shopping_list' in saved_plan: st.session_state.generated_list_draft = saved_plan['shopping_list']
 
-    # --- PROFIL EDITIEREN (ALLE FELDER WIEDER DA!) ---
+    # --- PROFIL EDITIEREN ---
     with st.expander("⚙️ Profil / Einstellungen bearbeiten", expanded=False):
         with st.form("edit_form_full"):
             st.write("### 1. Wer isst mit?")
@@ -369,7 +375,7 @@ else:
                 locked_c = [s['content'] for s in current_slots if s['locked'] and s['content']]
                 locked_blk = "\n---\n".join(locked_c) if locked_c else "Keine."
                 
-                # --- PROMPT MIT WIEDERHERGESTELLTEN DATEN ---
+                # --- PROMPT MIT ALLEN DATEN ---
                 diaet_str = ", ".join(current_data.get('diaet', []))
                 vermeiden_str = ", ".join(current_data.get('vermeiden_select', [])) + " " + current_data.get('vermeiden_text', "")
                 geraete_str = ", ".join(current_data.get('geraete', []))
@@ -459,7 +465,6 @@ else:
                         "2 Sterne (Lecker)", 
                         "3 Sterne (Lieblingsessen)"
                     ]
-                    # Index mappen (0->0, 1->1...)
                     sel_idx = max(0, min(3, rating_val))
                     
                     new_rating_str = st.selectbox(
@@ -527,7 +532,6 @@ else:
             status.write("Schreibe Liste...")
             all_txt = "\n".join([s['content'] for s in st.session_state.recipe_slots if s['content']])
             
-            # Prompt OHNE "User-Emojis" Text, aber mit Anweisung für KI
             prompt_list = f"""
             Erstelle eine Einkaufsliste für diese Rezepte:
             {all_txt}
