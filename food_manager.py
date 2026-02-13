@@ -359,7 +359,7 @@ else:
                     diaet_str = ", ".join(current_data['diaet']) if isinstance(current_data['diaet'], list) else current_data['diaet']
                     vermeiden_str = ", ".join(current_data.get('vermeiden_select', [])) + " " + current_data.get('vermeiden_text', "")
                     
-                    # WICHTIG: Hier steht jetzt korrekt gemini-2.0-flash
+                    # WICHTIG: Hier steht jetzt korrekt gemini-pro
                     prompt = f"""
                     Du bist der Food Manager.
                     PROFIL: {current_data['erwachsene']} Erw, {current_data['kinder_ueber3']} Kind(>3), {current_data['kinder_unter3']} Kind(<3).
@@ -387,8 +387,8 @@ else:
                         for p in prospekt_files: content.extend([Image.open(p), "Prospekt"])
 
                     try:
-                        # WICHTIG: MODELLWECHSEL AUF 2.0-FLASH
-                        model = genai.GenerativeModel('gemini-2.0-flash')
+                        # WICHTIG: MODELLWECHSEL AUF gemini-pro
+                        model = genai.GenerativeModel('gemini-pro')
                         response = model.generate_content(content)
                         parts = response.text.split("---TRENNER---")
                         
@@ -445,8 +445,8 @@ else:
                     all_text = "\n".join([s['content'] for s in st.session_state.recipe_slots if s['content']])
                     p_list = f"""Erstelle Einkaufsliste für:\n{all_text}\nSortiert nach Supermarkt-Bereich. Emojis. Vorrat ignorieren: {current_data['vorrat']}"""
                     try:
-                        # WICHTIG: MODELLWECHSEL AUF 2.0-FLASH
-                        m = genai.GenerativeModel('gemini-2.0-flash')
+                        # WICHTIG: MODELLWECHSEL AUF gemini-pro
+                        model = genai.GenerativeModel('gemini-pro')
                         res = m.generate_content(p_list)
                         final_list = res.text
                         
