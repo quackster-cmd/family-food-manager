@@ -8,12 +8,14 @@ import streamlit as st
 import google.generativeai as genai
 import sys
 
-# --- DIAGNOSE START ---
-st.write(f"🐍 Python Version: {sys.version}")
+# --- DIAGNOSE ANFANG ---
+st.write("🔍 **Google API Modell-Check:**")
 try:
-    st.write(f"🤖 Google GenAI Version: {genai.__version__}")
-except:
-    st.write("🤖 Google GenAI Version: Unbekannt (zu alt?)")
+    for m in genai.list_models():
+        if 'generateContent' in m.supported_generation_methods:
+            st.code(m.name)
+except Exception as e:
+    st.error(f"Fehler beim Abrufen der Modelle: {e}")
 # --- DIAGNOSE ENDE ---
 
 # ... hier geht dein normaler Code weiter ...
