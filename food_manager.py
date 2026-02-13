@@ -114,7 +114,7 @@ def delete_week_plan(profile, week_key):
         save_json(PLANS_FILE, plans)
 
 # Rezept Datenbank Manager
-def save_recipe_to_db(title, content, rating=2, source="AI"):
+def save_recipe_to_db(title, content, rating=0, source="AI"):
     db = load_json(RECIPE_DB_FILE)
     # Titel reinigen als Key
     clean_title = title.split("\n")[0].replace("#", "").strip()
@@ -145,7 +145,6 @@ if 'profile_to_select' in st.session_state:
 # Session Init
 if 'recipe_slots' not in st.session_state: st.session_state.recipe_slots = []
 if 'intro_text' not in st.session_state: st.session_state.intro_text = ""
-# Merker für aktuellen Wochen-Key (für den Reset beim Wechsel)
 if 'last_week_key' not in st.session_state: st.session_state.last_week_key = ""
 
 # --- SIDEBAR ---
@@ -169,7 +168,6 @@ with st.sidebar:
         today = datetime.date.today()
         year, week, _ = today.isocalendar()
         
-        # Automatisch aktuelle und nächste Woche berechnen
         w1_label = f"Kalenderwoche {week} (Aktuell)"
         w2_label = f"Kalenderwoche {week + 1} (Nächste)"
         
@@ -178,7 +176,6 @@ with st.sidebar:
             
         selected_week_opt = st.radio("Woche wählen:", [w1_label, w2_label], key="week_radio")
         
-        # Key generieren
         sel_week_num = week if "Aktuell" in selected_week_opt else week + 1
         sel_year = year
         if sel_week_num > 52: sel_week_num = 1; sel_year += 1
@@ -186,8 +183,7 @@ with st.sidebar:
         week_key = f"{sel_year}-W{sel_week_num}"
         selected_week_label = selected_week_opt
 
-        # --- LOGIK: WOCHENWECHSEL ERKENNEN ---
-        # Wenn sich der Key ändert (User klickt andere Woche), Session leeren!
+        # Wochenwechsel Reset
         if st.session_state.last_week_key != week_key:
             st.session_state.recipe_slots = []
             st.session_state.intro_text = ""
@@ -195,7 +191,7 @@ with st.sidebar:
             st.session_state.last_week_key = week_key
             st.rerun()
 
-        # --- REZEPT DATABASE UPLOAD ---
+        # REZEPT UPLOAD
         st.divider()
         with st.expander("📚 Rezept hinzufügen"):
             st.write("Lade ein Foto oder Text hoch. Die KI speichert es in deine Datenbank.")
@@ -217,7 +213,7 @@ with st.sidebar:
                         res = m.generate_content(p)
                         title, body = split_recipe_content(res.text)
                         
-                        save_recipe_to_db(title, res.text, rating=2, source="Upload")
+                        save_recipe_to_db(title, res.text, rating=0, source="Upload")
                         st.success(f"'{title}' gespeichert!")
                     except Exception as e:
                         st.error(f"Fehler: {e}")
@@ -239,14 +235,43 @@ if is_new_profile:
     profile_name_input = st.text_input("Profilname", "Meine Familie")
     with st.expander("⚙️ Profil erstellen", expanded=True):
         with st.form("preset_form"):
-            c1,c2,c3 = st.columns(3)
-            p_erw = c1.number_input("Erw.", 1,10,2); p_k3 = c2.number_input("Kind>3",0,10,0); p_ku3=c3.number_input("Kind<3",0,10,0)
-            p_det = st.text_area("Infos:"); p_dia = st.multiselect("Ernährung", ["Alles","Vegetarisch","Vegan"], default=["Alles"])
-            p_vor = st.text_area("Vorrat", "Nudeln, Reis")
-            if st.form_submit_button("Speichern"):
+            st.write("### 1. Wer isst mit?")
+            c1, c2, c3 = st.columns(3)
+            p_erw = c1.number_input("Erw.", 1, 10, 2)
+            p_k3 = c2.number_input("Kind (>3)", 0, 10, 0)
+            p_ku3 = c3.number_input("Kind (<3)", 0, 10, 0)
+
+            st.write("### 2. Ernährung & Besonderheiten")
+            p_details = st.text_area("Dauerhafte Infos / Allergien:", "")
+            diaet_opts = sorted(["Ausgewogen (Alles)", "Vegetarisch", "Vegan", "Ohne Schwein", "Glutenfrei", "Laktosefrei", "Pescatarier", "Low Carb", "Keto"])
+            p_diaet = st.multiselect("Ernährung:", diaet_opts, default=["Ausgewogen (Alles)"])
+
+            col_av1, col_av2 = st.columns(2)
+            verm_opts = sorted(["Nüsse", "Eier", "Soja", "Pilze", "Oliven", "Fisch", "Tomaten", "Paprika", "Zwiebeln", "Knoblauch", "Koriander"])
+            p_verm_sel = col_av1.multiselect("Vermeiden (Auswahl):", verm_opts)
+            p_verm_txt = col_av2.text_input("Vermeiden (Freitext):")
+
+            st.write("### 3. Haushalt, Ziele & Shops")
+            geraete_opts = sorted(["Backofen", "Mikrowelle", "Mixer", "Herd", "Air Fryer", "Thermomix", "Slow Cooker", "Grill", "Dampfgarer"])
+            p_geraete = st.multiselect("Geräte:", geraete_opts, default=["Backofen", "Herd"])
+            
+            ziele_opts = sorted(["Geld sparen", "Weniger Fleisch", "Leichte Küche", "Neue Rezepte entdecken", "Proteinreich (Sport)", "Einkäufe minimieren", "Schnelle Küche (<20 Min)", "Bio / Nachhaltig", "Meal Prep geeignet"])
+            p_ziele = st.multiselect("Ziele:", ziele_opts, default=["Geld sparen"])
+            
+            shop_opts = sorted(["Aldi", "Lidl", "Rewe", "Edeka", "Netto", "Penny", "Kaufland", "DM", "Rossmann", "Marktkauf", "Hit", "Globus"])
+            p_shops = st.multiselect("Supermärkte:", shop_opts, default=["Aldi", "Rewe"])
+            
+            p_vorrat = st.text_area("Ständiger Vorrat:", "Nudeln, Reis, Salz, Pfeffer, Öl, Mehl, Zucker")
+
+            if st.form_submit_button("💾 Profil Speichern"):
                 if not profile_name_input: st.error("Name fehlt")
                 else:
-                    d = {"erwachsene": p_erw, "kinder_ueber3": p_k3, "kinder_unter3": p_ku3, "besonderheiten": p_det, "diaet": p_dia, "vorrat": p_vor, "geraete": [], "ziele": [], "shops": [], "vermeiden_select": [], "vermeiden_text": ""}
+                    d = {
+                        "erwachsene": p_erw, "kinder_ueber3": p_k3, "kinder_unter3": p_ku3,
+                        "besonderheiten": p_details, "diaet": p_diaet,
+                        "vermeiden_select": p_verm_sel, "vermeiden_text": p_verm_txt,
+                        "geraete": p_geraete, "ziele": p_ziele, "shops": p_shops, "vorrat": p_vorrat
+                    }
                     save_profile(profile_name_input, d)
                     st.session_state.profile_to_select = profile_name_input
                     st.rerun()
@@ -262,18 +287,55 @@ else:
         st.session_state.intro_text = saved_plan.get('intro', "")
         if 'shopping_list' in saved_plan: st.session_state.generated_list_draft = saved_plan['shopping_list']
 
-    # --- PROFIL EDITIEREN ---
-    with st.expander("⚙️ Profil / Einstellungen", expanded=False):
-        with st.form("edit_form"):
-            p_vor = st.text_area("Vorrat ändern:", current_data.get("vorrat", ""))
-            if st.form_submit_button("Update"):
-                current_data['vorrat'] = p_vor
-                save_profile(selected_profile_name, current_data); st.rerun()
+    # --- PROFIL EDITIEREN (ALLE FELDER WIEDER DA!) ---
+    with st.expander("⚙️ Profil / Einstellungen bearbeiten", expanded=False):
+        with st.form("edit_form_full"):
+            st.write("### 1. Wer isst mit?")
+            c1, c2, c3 = st.columns(3)
+            p_erw = c1.number_input("Erw.", 1, 10, current_data.get("erwachsene", 2))
+            p_k3 = c2.number_input("Kind (>3)", 0, 10, current_data.get("kinder_ueber3", 0))
+            p_ku3 = c3.number_input("Kind (<3)", 0, 10, current_data.get("kinder_unter3", 0))
+
+            st.write("### 2. Ernährung")
+            p_details = st.text_area("Infos:", current_data.get("besonderheiten", ""))
+            diaet_opts = sorted(["Ausgewogen (Alles)", "Vegetarisch", "Vegan", "Ohne Schwein", "Glutenfrei", "Laktosefrei", "Pescatarier", "Low Carb", "Keto"])
+            saved_diaet = current_data.get("diaet", ["Ausgewogen (Alles)"])
+            if isinstance(saved_diaet, str): saved_diaet = [saved_diaet]
+            p_diaet = st.multiselect("Ernährung:", diaet_opts, default=saved_diaet)
+
+            col_av1, col_av2 = st.columns(2)
+            verm_opts = sorted(["Nüsse", "Eier", "Soja", "Pilze", "Oliven", "Fisch", "Tomaten", "Paprika", "Zwiebeln", "Knoblauch", "Koriander"])
+            p_verm_sel = col_av1.multiselect("Vermeiden:", verm_opts, default=current_data.get("vermeiden_select", []))
+            p_verm_txt = col_av2.text_input("Vermeiden (Freitext):", value=current_data.get("vermeiden_text", ""))
+
+            st.write("### 3. Haushalt")
+            geraete_opts = sorted(["Backofen", "Mikrowelle", "Mixer", "Herd", "Air Fryer", "Thermomix", "Slow Cooker", "Grill", "Dampfgarer"])
+            p_geraete = st.multiselect("Geräte:", geraete_opts, default=current_data.get("geraete", ["Backofen", "Herd"]))
+            
+            ziele_opts = sorted(["Geld sparen", "Weniger Fleisch", "Leichte Küche", "Neue Rezepte entdecken", "Proteinreich (Sport)", "Einkäufe minimieren", "Schnelle Küche (<20 Min)", "Bio / Nachhaltig", "Meal Prep geeignet"])
+            p_ziele = st.multiselect("Ziele:", ziele_opts, default=current_data.get("ziele", ["Geld sparen"]))
+            
+            shop_opts = sorted(["Aldi", "Lidl", "Rewe", "Edeka", "Netto", "Penny", "Kaufland", "DM", "Rossmann", "Marktkauf", "Hit", "Globus"])
+            p_shops = st.multiselect("Supermärkte:", shop_opts, default=current_data.get("shops", ["Aldi", "Rewe"]))
+            
+            p_vorrat = st.text_area("Vorrat:", current_data.get("vorrat", ""))
+
+            if st.form_submit_button("Update speichern"):
+                d = {
+                    "erwachsene": p_erw, "kinder_ueber3": p_k3, "kinder_unter3": p_ku3,
+                    "besonderheiten": p_details, "diaet": p_diaet,
+                    "vermeiden_select": p_verm_sel, "vermeiden_text": p_verm_txt,
+                    "geraete": p_geraete, "ziele": p_ziele, "shops": p_shops, "vorrat": p_vorrat
+                }
+                save_profile(selected_profile_name, d)
+                st.success("Gespeichert!")
+                st.rerun()
+        
+        st.markdown("---")
         if st.button("🗑️ Profil löschen"):
             delete_profile(selected_profile_name); st.session_state.profile_to_select = "Neues Profil erstellen"; st.rerun()
 
     st.divider()
-    # Design-Anpassung: Türkis Titel
     st.markdown(f'<div class="kw-title">Planung für {selected_week_label}</div>', unsafe_allow_html=True)
     
     # --- INPUT ---
@@ -289,17 +351,16 @@ else:
 
         if not st.session_state.recipe_slots:
             if st.button("🚀 Erste Planung starten", type="primary"):
-                # Initial Rating = 2 (Lecker/Mittel)
-                st.session_state.recipe_slots = [{'day': i+1, 'content': None, 'locked': False, 'rating': 2} for i in range(days_to_plan)]
+                # Initial Rating = 0 (Bitte bewerten)
+                st.session_state.recipe_slots = [{'day': i+1, 'content': None, 'locked': False, 'rating': 0} for i in range(days_to_plan)]
                 st.rerun()
 
     # --- KI GENERIERUNG ---
     if st.session_state.recipe_slots:
         current_slots = st.session_state.recipe_slots
-        # Array Size Check
         if len(current_slots) < days_to_plan:
              for i in range(len(current_slots), days_to_plan):
-                 current_slots.append({'day': i+1, 'content': None, 'locked': False, 'rating': 2})
+                 current_slots.append({'day': i+1, 'content': None, 'locked': False, 'rating': 0})
         
         slots_to_fill = [i for i, slot in enumerate(current_slots) if slot['content'] is None]
         
@@ -308,15 +369,25 @@ else:
                 locked_c = [s['content'] for s in current_slots if s['locked'] and s['content']]
                 locked_blk = "\n---\n".join(locked_c) if locked_c else "Keine."
                 
+                # --- PROMPT MIT WIEDERHERGESTELLTEN DATEN ---
+                diaet_str = ", ".join(current_data.get('diaet', []))
+                vermeiden_str = ", ".join(current_data.get('vermeiden_select', [])) + " " + current_data.get('vermeiden_text', "")
+                geraete_str = ", ".join(current_data.get('geraete', []))
+                ziele_str = ", ".join(current_data.get('ziele', []))
+                shops_str = ", ".join(current_data.get('shops', []))
+
                 prompt = f"""
                 Du bist der Food Manager.
                 PROFIL: {current_data.get('erwachsene')} Erw, {current_data.get('kinder_ueber3')} Kind>3.
-                Ernährung: {", ".join(current_data.get('diaet', []))}.
+                Ernährung: {diaet_str} (No-Gos: {vermeiden_str}).
+                Geräte vorhanden: {geraete_str}.
+                Ziele: {ziele_str}.
+                Bevorzugte Supermärkte: {shops_str}.
                 VORRAT: {current_data.get('vorrat', '')}.
                 
                 USER WÜNSCHE: "{manuelle_reste}" (Gehe darauf ein!).
                 
-                FIXIERT: {locked_blk}
+                FIXIERT (Nicht wiederholen): {locked_blk}
                 
                 AUFGABE: Generiere {len(slots_to_fill)} NEUE Rezepte.
                 FORMAT:
@@ -347,9 +418,9 @@ else:
                         if idx < len(slots_to_fill):
                             target = slots_to_fill[idx]
                             st.session_state.recipe_slots[target]['content'] = p
-                            # Rating sicherstellen
+                            # Rating sicherstellen (0 = Bitte bewerten)
                             if 'rating' not in st.session_state.recipe_slots[target]:
-                                st.session_state.recipe_slots[target]['rating'] = 2
+                                st.session_state.recipe_slots[target]['rating'] = 0
                             idx += 1
                     
                     save_week_plan(selected_profile_name, week_key, {
@@ -376,15 +447,20 @@ else:
             with st.container(border=True):
                 c1, c2 = st.columns([0.7, 0.3])
                 is_locked = slot.get('locked', False)
-                rating_val = slot.get('rating', 2)
+                rating_val = slot.get('rating', 0)
                 
                 with c1:
                     st.markdown(f"<div class='recipe-header'>{title}</div>", unsafe_allow_html=True)
                     
-                    # --- STERNE BEWERTUNG ---
-                    # 1=Selten, 2=Lecker, 3=Liebling
-                    rating_opts = ["⭐ (Selten)", "⭐⭐ (Lecker)", "⭐⭐⭐ (Lieblingsessen)"]
-                    sel_idx = max(0, min(2, rating_val - 1))
+                    # --- NEUE STERNE BEWERTUNG (0 bis 3) ---
+                    rating_opts = [
+                        "0 Sterne (Nicht wiederholen)", 
+                        "1 Stern (Selten)", 
+                        "2 Sterne (Lecker)", 
+                        "3 Sterne (Lieblingsessen)"
+                    ]
+                    # Index mappen (0->0, 1->1...)
+                    sel_idx = max(0, min(3, rating_val))
                     
                     new_rating_str = st.selectbox(
                         "Bewertung:", 
@@ -394,8 +470,9 @@ else:
                         label_visibility="collapsed"
                     )
                     
+                    new_val = rating_opts.index(new_rating_str)
+                    
                     # Logik: Wenn Bewertung geändert wird -> Speichern
-                    new_val = rating_opts.index(new_rating_str) + 1
                     if new_val != rating_val:
                         st.session_state.recipe_slots[i]['rating'] = new_val
                         save_week_plan(selected_profile_name, week_key, {
@@ -403,7 +480,7 @@ else:
                             "intro": st.session_state.intro_text,
                             "shopping_list": st.session_state.get('generated_list_draft')
                         })
-                        # Auch in DB speichern!
+                        # Auch in DB speichern
                         save_recipe_to_db(title, content, new_val, "Weekly Plan")
                         st.toast(f"Bewertung gespeichert!", icon="⭐")
 
@@ -450,7 +527,7 @@ else:
             status.write("Schreibe Liste...")
             all_txt = "\n".join([s['content'] for s in st.session_state.recipe_slots if s['content']])
             
-            # Prompt angepasst
+            # Prompt OHNE "User-Emojis" Text, aber mit Anweisung für KI
             prompt_list = f"""
             Erstelle eine Einkaufsliste für diese Rezepte:
             {all_txt}
