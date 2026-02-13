@@ -359,7 +359,7 @@ else:
                     diaet_str = ", ".join(current_data['diaet']) if isinstance(current_data['diaet'], list) else current_data['diaet']
                     vermeiden_str = ", ".join(current_data.get('vermeiden_select', [])) + " " + current_data.get('vermeiden_text', "")
                     
-                    # WICHTIG: Hier nutzen wir jetzt gemini-1.5-flash
+                    # WICHTIG: Hier nutzen wir jetzt gemini-1.5-flash-latest-latest
                     prompt = f"""
                     Du bist der Food Manager.
                     PROFIL: {current_data['erwachsene']} Erw, {current_data['kinder_ueber3']} Kind(>3), {current_data['kinder_unter3']} Kind(<3).
@@ -388,7 +388,7 @@ else:
 
                     try:
                         # HIER IST DIE ÄNDERUNG: 1.5-flash
-                        model = genai.GenerativeModel('gemini-1.5-flash')
+                        model = genai.GenerativeModel('gemini-1.5-flash-latest')
                         response = model.generate_content(content)
                         parts = response.text.split("---TRENNER---")
                         
@@ -446,7 +446,7 @@ else:
                     p_list = f"""Erstelle Einkaufsliste für:\n{all_text}\nSortiert nach Supermarkt-Bereich. Emojis. Vorrat ignorieren: {current_data['vorrat']}"""
                     try:
                         # HIER AUCH 1.5-flash
-                        m = genai.GenerativeModel('gemini-1.5-flash')
+                        m = genai.GenerativeModel('gemini-1.5-flash-latest')
                         res = m.generate_content(p_list)
                         final_list = res.text
                         
