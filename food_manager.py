@@ -211,8 +211,8 @@ with st.sidebar:
             if new_rec_content and st.button("💾 In Datenbank speichern"):
                 with st.spinner("Analysiere & Speichere..."):
                     try:
-                        # Hier nehmen wir 1.5 für Stabilität beim Upload
-                        m = genai.GenerativeModel('gemini-1.5-flash')
+                        # Upload sicherheitshalber auch mit flash-latest
+                        m = genai.GenerativeModel('gemini-flash-latest')
                         p = ["Formatiere das Rezept strikt: Zeile 1: Emoji + Titel. Dann Zutaten, Dann Anleitung.", new_rec_content[0]] if isinstance(new_rec_content, list) else [new_rec_content[0]]
                         res = m.generate_content(p)
                         title, body = split_recipe_content(res.text)
@@ -411,7 +411,6 @@ else:
                     for p in prospekt_files: content.extend([Image.open(p), "Prospekt"])
                 
                 try:
-                    # HIER: Für Rezepte nutzen wir das kreative 2.5er (wenn es klappt)
                     m = genai.GenerativeModel('gemini-2.5-flash')
                     res = m.generate_content(content)
                     raw = res.text
@@ -439,7 +438,7 @@ else:
                     })
                     st.rerun()
                 except Exception as e: 
-                    st.error(f"Fehler: {e} - Versuche es in 5 Sekunden nochmal.")
+                    st.error(f"Fehler: {e}")
 
     # --- ANZEIGE ---
     if st.session_state.recipe_slots:
@@ -534,8 +533,8 @@ else:
             """
             
             try:
-                # WICHTIG: Einkaufsliste immer mit 1.5 Flash (wegen 429 Fehler)
-                ml = genai.GenerativeModel('gemini-1.5-flash')
+                # FIX: flash-latest nutzen
+                ml = genai.GenerativeModel('gemini-flash-latest')
                 rl = ml.generate_content(prompt_list)
                 st.session_state.generated_list_draft = rl.text
                 
