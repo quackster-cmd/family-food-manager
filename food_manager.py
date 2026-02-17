@@ -3,6 +3,7 @@ import google.generativeai as genai
 from PIL import Image
 import datetime
 import time
+import re
 from supabase import create_client, Client
 
 # --- KONFIGURATION ---
@@ -49,9 +50,9 @@ TRANSLATIONS = {
         "spinner_cooking": "Der digitale Koch brutzelt...",
         "btn_reroll": "🎲 Offene neu würfeln",
         "btn_shopping": "🛒 Einkaufsliste erstellen",
-        "spinner_shop": "Schreibe Einkaufsliste...",
+        "spinner_shop": "Filtere Zutaten & sortiere...",
         "header_shopping": "🛒 Deine Einkaufsliste",
-        "toggle_shop_mode": "🏃‍♂️ Abhaken-Modus",
+        "toggle_shop_mode": "📱 INTERAKTIVER MODUS (ZUM ABHAKEN)",
         "btn_clear_week": "🗑️ Woche löschen",
         "prompt_lang": "Antworte strikt auf DEUTSCH.",
         "rate_0": "Bitte bewerten (Neu)",
@@ -103,9 +104,9 @@ TRANSLATIONS = {
         "spinner_cooking": "Cooking up ideas...",
         "btn_reroll": "🎲 Reroll Open Slots",
         "btn_shopping": "🛒 Create Shopping List",
-        "spinner_shop": "Writing list...",
+        "spinner_shop": "Filtering & Sorting...",
         "header_shopping": "🛒 Shopping List",
-        "toggle_shop_mode": "🏃‍♂️ Check-off Mode",
+        "toggle_shop_mode": "📱 SHOPPING MODE (CHECK-OFF)",
         "btn_clear_week": "🗑️ Clear Week",
         "prompt_lang": "Answer strictly in ENGLISH.",
         "rate_0": "Rate me (New)",
@@ -149,6 +150,18 @@ st.markdown("""
     .history-badge {
         font-size: 0.8rem; background-color: rgba(255, 255, 255, 0.1); 
         padding: 2px 8px; border-radius: 10px; color: #888; margin-bottom: 5px; display: inline-block;
+    }
+    
+    /* EINKAUFSLISTE KATEGORIEN BUNT MACHEN */
+    h3 {
+        color: #4ECDC4 !important; /* Türkis */
+        font-weight: 800 !important;
+        margin-top: 20px !important;
+    }
+    
+    /* ABHAKEN STYLING */
+    .stCheckbox label {
+        font-size: 1.1rem !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -294,7 +307,6 @@ with st.sidebar:
         if new_rec and st.button(get_txt("btn_save_db")):
             with st.spinner("..."):
                 try:
-                    # HIER AUCH 2.5 NUTZEN
                     m = genai.GenerativeModel('gemini-2.5-flash')
                     res = m.generate_content(["Formatiere Rezept: Zeile 1 Emoji+Titel. Dann Zutaten/Anleitung.", new_rec[0]] if isinstance(new_rec, list) else [new_rec[0]])
                     t, b = split_recipe_content(res.text)
@@ -379,6 +391,7 @@ else:
         if to_fill:
             with st.spinner(get_txt("spinner_cooking")):
                 locked = [s['content'] for s in slots if s['locked'] and s['content']]
+                # PROMPT UPDATE: Emojis & Nährwerte
                 p_text = f"Rolle: Food Manager. Profil: {pref.get('erwachsene')} Erw, {pref.get('kinder_ueber3')} Kind>3. Ernährung: {','.join(pref.get('diaet',[]))}. Wünsche: {wishes}. Fixiert: {' '.join(locked)}. AUFGABE: {len(to_fill)} Rezepte. FORMAT: 1. Intro -> '---INTRO_ENDE---'. 2. Rezepte getrennt '---TRENNER---'. 3. Titel mit Emoji. 4. Nährwerte (Kcal/E/K/F) am Ende. {get_txt('prompt_lang')}"
                 try:
                     m = genai.GenerativeModel('gemini-2.5-flash')
@@ -435,42 +448,61 @@ else:
             for s in st.session_state.recipe_slots: s['locked'] = True
             save_week_plan_db(user_id, week_key, {"recipes": st.session_state.recipe_slots, "intro": st.session_state.intro_text, "shopping_list": st.session_state.get('generated_list_draft')})
             
-            all_t = "\n".join([s['content'] for s in st.session_state.recipe_slots if s['content']])
-            p = f"Erstelle Einkaufsliste für:\n{all_t}\nVorrat ignorieren: {pref.get('vorrat','')}. Sortiert nach Kategorie. Jede Zutat mit Bindestrich -. {get_txt('prompt_lang')}"
+            ingredients_only = ""
+            for s in st.session_state.recipe_slots:
+                if s['content']:
+                    lines = s['content'].split('\n')
+                    for line in lines:
+                        clean = line.strip()
+                        if clean.startswith('-') or clean.startswith('*'):
+                            ingredients_only += clean + "\n"
+            
+            if len(ingredients_only) < 10: 
+                ingredients_only = "\n".join([s['content'] for s in st.session_state.recipe_slots if s['content']])
+
+            # PROMPT UPDATE: Emojis + Überschriften
+            p = f"Erstelle Einkaufsliste für:\n{ingredients_only}\nVorrat ignorieren: {pref.get('vorrat','')}. Sortiere sinnvoll nach Kategorien. Nutze Emojis für Kategorien (z.B. 🥦 Obst). Kategorien als Markdown-Überschriften (###). {get_txt('prompt_lang')}"
             
             success = False
-            try:
-                # WICHTIG: Hier jetzt auch 2.5 nutzen!
-                ml = genai.GenerativeModel('gemini-2.5-flash')
-                rl = ml.generate_content(p)
-                success = True
-            except:
-                status.write("Google ausgelastet (429). Warte 5s...")
-                time.sleep(5)
-                try:
-                    ml = genai.GenerativeModel('gemini-2.5-flash')
-                    rl = ml.generate_content(p)
-                    success = True
-                except Exception as e:
-                    status.update(label="Fehler", state="error"); st.error(f"Einkaufsliste fehlgeschlagen: {e}")
+            model_list = ['gemini-1.5-flash', 'gemini-2.0-flash-exp', 'gemini-2.5-flash']
             
+            for model_name in model_list:
+                if success: break
+                try:
+                    ml = genai.GenerativeModel(model_name)
+                    rl = ml.generate_content(p)
+                    st.session_state.generated_list_draft = rl.text
+                    success = True
+                except: time.sleep(1)
+
             if success:
-                st.session_state.generated_list_draft = rl.text
-                save_week_plan_db(user_id, week_key, {"recipes": st.session_state.recipe_slots, "intro": st.session_state.intro_text, "shopping_list": rl.text})
+                save_week_plan_db(user_id, week_key, {"recipes": st.session_state.recipe_slots, "intro": st.session_state.intro_text, "shopping_list": st.session_state.generated_list_draft})
                 status.update(label="Fertig!", state="complete", expanded=False); time.sleep(0.5); st.rerun()
+            else:
+                status.update(label="Fehler (Google überlastet)", state="error")
+                st.error("Konnte Liste nicht erstellen.")
 
         if st.session_state.get('generated_list_draft'):
             st.divider(); st.markdown(f'<div class="section-title">{get_txt("header_shopping")}</div>', unsafe_allow_html=True)
             sm = st.toggle(get_txt("toggle_shop_mode"))
             if sm:
+                # ABHAKEN MODUS (MIT STRIKETHROUGH)
+                st.info("💡 Tipp: Erledigtes wird durchgestrichen.")
                 for ln in st.session_state.generated_list_draft.split('\n'):
                     cl = ln.strip()
                     if cl.startswith('-') or cl.startswith('*'):
                         it = cl.replace('-','').replace('*','').strip()
                         ch = st.session_state.checked_items.get(it, False)
-                        if st.checkbox(it, value=ch, key=f"c_{it}"): st.session_state.checked_items[it] = True
-                        else: st.session_state.checked_items[it] = False
-                    else: st.markdown(cl)
+                        
+                        # Trick: Zwei Spalten, damit der Text schön aussieht
+                        c_cb, c_txt = st.columns([0.1, 0.9])
+                        if c_cb.checkbox("done", value=ch, key=f"c_{it}", label_visibility="collapsed"):
+                            st.session_state.checked_items[it] = True
+                            c_txt.markdown(f"~~{it}~~") # Durchstreichen
+                        else:
+                            st.session_state.checked_items[it] = False
+                            c_txt.write(it)
+                    else: st.markdown(cl) # Überschriften bunt durch CSS
             else: st.markdown(st.session_state.generated_list_draft)
             
             if st.button(get_txt("btn_clear_week")):
