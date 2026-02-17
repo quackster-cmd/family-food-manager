@@ -1,0 +1,14 @@
+# Datenbanken & Nutzerdaten (NICHT HOCHLADEN)
+*.json
+user_profiles.json
+weekly_plans.json
+recipe_database.json
+
+# Systemdateien & Python Müll
+__pycache__/
+*.py[cod]
+.DS_Store
+
+# Lokale Secrets (falls vorhanden)
+.streamlit/secrets.toml
+.env
