@@ -116,7 +116,6 @@ def delete_week_plan(profile, week_key):
 # Rezept Datenbank Manager
 def save_recipe_to_db(title, content, rating=0, source="AI"):
     db = load_json(RECIPE_DB_FILE)
-    # Titel reinigen als Key
     clean_title = title.split("\n")[0].replace("#", "").strip()
     if len(clean_title) > 50: clean_title = clean_title[:50] + "..."
     
@@ -194,7 +193,7 @@ with st.sidebar:
         # REZEPT UPLOAD
         st.divider()
         with st.expander("📚 Rezept hinzufügen"):
-            st.write("Lade ein Foto oder Text hoch. Die KI speichert es in deine Datenbank.")
+            st.write("Lade ein Foto oder Text hoch.")
             up_mode = st.radio("Eingabe:", ["Text/Link", "Foto"], horizontal=True)
             
             new_rec_content = None
@@ -205,9 +204,7 @@ with st.sidebar:
                 new_rec_text = st.text_area("Rezept-Text oder Link einfügen")
                 if new_rec_text: new_rec_content = [f"Formatiere dies sauber als Rezept: {new_rec_text}"]
             
-            # NEU: Bewertung vor dem Speichern
             up_rating_opts = ["0 Sterne (Nicht wiederholen)", "1 Stern (Selten)", "2 Sterne (Lecker)", "3 Sterne (Lieblingsessen)"]
-            # Default auf 2 Sterne (Lecker), da man es ja extra hochlädt
             up_rating_str = st.selectbox("Bewertung:", up_rating_opts, index=2)
             up_rating_val = up_rating_opts.index(up_rating_str)
 
@@ -220,7 +217,7 @@ with st.sidebar:
                         title, body = split_recipe_content(res.text)
                         
                         save_recipe_to_db(title, res.text, rating=up_rating_val, source="Upload")
-                        st.success(f"'{title}' mit {up_rating_val} Sternen gespeichert!")
+                        st.success(f"'{title}' gespeichert!")
                     except Exception as e:
                         st.error(f"Fehler: {e}")
 
@@ -241,7 +238,6 @@ if is_new_profile:
     profile_name_input = st.text_input("Profilname", "Meine Familie")
     with st.expander("⚙️ Profil erstellen", expanded=True):
         with st.form("preset_form"):
-            st.write("### 1. Wer isst mit?")
             c1, c2, c3 = st.columns(3)
             p_erw = c1.number_input("Erw.", 1, 10, 2)
             p_k3 = c2.number_input("Kind (>3)", 0, 10, 0)
@@ -287,11 +283,15 @@ else:
     current_data = profiles[selected_profile_name]
     saved_plan = get_week_plan(selected_profile_name, week_key)
     
-    # Laden wenn Daten da sind und Session leer
-    if saved_plan and not st.session_state.recipe_slots:
-        st.session_state.recipe_slots = saved_plan.get('recipes', [])
-        st.session_state.intro_text = saved_plan.get('intro', "")
-        if 'shopping_list' in saved_plan: st.session_state.generated_list_draft = saved_plan['shopping_list']
+    # --- LOGIK FIX: WENN DATEN GELADEN WERDEN, SLIDER ANPASSEN ---
+    if saved_plan:
+        if not st.session_state.recipe_slots:
+            st.session_state.recipe_slots = saved_plan.get('recipes', [])
+            st.session_state.intro_text = saved_plan.get('intro', "")
+            if 'shopping_list' in saved_plan: st.session_state.generated_list_draft = saved_plan['shopping_list']
+            
+            # WICHTIG: Anzahl der geladenen Rezepte für den Slider merken!
+            st.session_state.days_slider_val = len(st.session_state.recipe_slots)
 
     # --- PROFIL EDITIEREN ---
     with st.expander("⚙️ Profil / Einstellungen bearbeiten", expanded=False):
@@ -348,7 +348,14 @@ else:
     slots_empty = len(st.session_state.recipe_slots) == 0
     with st.expander("📝 Planungsvorgaben & Uploads", expanded=slots_empty):
         col_in1, col_in2 = st.columns(2)
-        days_to_plan = col_in1.slider("Tage:", 1, 7, 4)
+        
+        # SLIDER LOGIK FIX: Nutze gespeicherten Wert wenn vorhanden, sonst 4
+        default_days = st.session_state.get('days_slider_val', 4)
+        days_to_plan = col_in1.slider("Tage:", 1, 7, default_days, key="day_slider")
+        # Aktualisiere den Session State wenn der User den Slider bewegt
+        if days_to_plan != default_days:
+            st.session_state.days_slider_val = days_to_plan
+
         zeit_input = col_in1.slider("Zeit (Min):", 0, 120, 30, step=5)
         manuelle_reste = col_in2.text_area("Wünsche:", "Alles offen", height=100)
         c_up1, c_up2 = st.columns(2)
@@ -357,7 +364,6 @@ else:
 
         if not st.session_state.recipe_slots:
             if st.button("🚀 Erste Planung starten", type="primary"):
-                # Initial Rating = 0 (Bitte bewerten)
                 st.session_state.recipe_slots = [{'day': i+1, 'content': None, 'locked': False, 'rating': 0} for i in range(days_to_plan)]
                 st.rerun()
 
@@ -375,7 +381,6 @@ else:
                 locked_c = [s['content'] for s in current_slots if s['locked'] and s['content']]
                 locked_blk = "\n---\n".join(locked_c) if locked_c else "Keine."
                 
-                # --- PROMPT MIT ALLEN DATEN ---
                 diaet_str = ", ".join(current_data.get('diaet', []))
                 vermeiden_str = ", ".join(current_data.get('vermeiden_select', [])) + " " + current_data.get('vermeiden_text', "")
                 geraete_str = ", ".join(current_data.get('geraete', []))
@@ -386,14 +391,10 @@ else:
                 Du bist der Food Manager.
                 PROFIL: {current_data.get('erwachsene')} Erw, {current_data.get('kinder_ueber3')} Kind>3.
                 Ernährung: {diaet_str} (No-Gos: {vermeiden_str}).
-                Geräte vorhanden: {geraete_str}.
-                Ziele: {ziele_str}.
-                Bevorzugte Supermärkte: {shops_str}.
+                Geräte: {geraete_str}. Ziele: {ziele_str}. Shops: {shops_str}.
                 VORRAT: {current_data.get('vorrat', '')}.
-                
-                USER WÜNSCHE: "{manuelle_reste}" (Gehe darauf ein!).
-                
-                FIXIERT (Nicht wiederholen): {locked_blk}
+                USER WÜNSCHE: "{manuelle_reste}".
+                FIXIERT: {locked_blk}
                 
                 AUFGABE: Generiere {len(slots_to_fill)} NEUE Rezepte.
                 FORMAT:
@@ -424,7 +425,6 @@ else:
                         if idx < len(slots_to_fill):
                             target = slots_to_fill[idx]
                             st.session_state.recipe_slots[target]['content'] = p
-                            # Rating sicherstellen (0 = Bitte bewerten)
                             if 'rating' not in st.session_state.recipe_slots[target]:
                                 st.session_state.recipe_slots[target]['rating'] = 0
                             idx += 1
@@ -458,26 +458,14 @@ else:
                 with c1:
                     st.markdown(f"<div class='recipe-header'>{title}</div>", unsafe_allow_html=True)
                     
-                    # --- NEUE STERNE BEWERTUNG (0 bis 3) ---
-                    rating_opts = [
-                        "0 Sterne (Nicht wiederholen)", 
-                        "1 Stern (Selten)", 
-                        "2 Sterne (Lecker)", 
-                        "3 Sterne (Lieblingsessen)"
-                    ]
+                    rating_opts = ["0 Sterne (Nicht wiederholen)", "1 Stern (Selten)", "2 Sterne (Lecker)", "3 Sterne (Lieblingsessen)"]
                     sel_idx = max(0, min(3, rating_val))
                     
                     new_rating_str = st.selectbox(
-                        "Bewertung:", 
-                        rating_opts, 
-                        index=sel_idx, 
-                        key=f"rate_{i}_{week_key}", 
-                        label_visibility="collapsed"
+                        "Bewertung:", rating_opts, index=sel_idx, key=f"rate_{i}_{week_key}", label_visibility="collapsed"
                     )
                     
                     new_val = rating_opts.index(new_rating_str)
-                    
-                    # Logik: Wenn Bewertung geändert wird -> Speichern
                     if new_val != rating_val:
                         st.session_state.recipe_slots[i]['rating'] = new_val
                         save_week_plan(selected_profile_name, week_key, {
@@ -485,29 +473,21 @@ else:
                             "intro": st.session_state.intro_text,
                             "shopping_list": st.session_state.get('generated_list_draft')
                         })
-                        # Auch in DB speichern
                         save_recipe_to_db(title, content, new_val, "Weekly Plan")
                         st.toast(f"Bewertung gespeichert!", icon="⭐")
 
                 with c2:
-                    if st.toggle("Fixieren", value=is_locked, key=f"fix_{i}_{week_key}"):
-                        if not is_locked:
-                            st.session_state.recipe_slots[i]['locked'] = True
-                            save_week_plan(selected_profile_name, week_key, {
-                                "recipes": st.session_state.recipe_slots,
-                                "intro": st.session_state.intro_text,
-                                "shopping_list": st.session_state.get('generated_list_draft')
-                            })
-                            st.rerun()
-                    else:
-                        if is_locked:
-                            st.session_state.recipe_slots[i]['locked'] = False
-                            save_week_plan(selected_profile_name, week_key, {
-                                "recipes": st.session_state.recipe_slots,
-                                "intro": st.session_state.intro_text,
-                                "shopping_list": st.session_state.get('generated_list_draft')
-                            })
-                            st.rerun()
+                    # FIXIEREN BUGFIX: Zwingt UI Update durch Key
+                    toggle_key = f"fix_{i}_{week_key}_{is_locked}" # Dynamischer Key damit Statuswechsel sofort sichtbar
+                    
+                    if st.button(f"{'🔒 Fixiert' if is_locked else '🔓 Offen'}", key=toggle_key, use_container_width=True):
+                         st.session_state.recipe_slots[i]['locked'] = not is_locked
+                         save_week_plan(selected_profile_name, week_key, {
+                            "recipes": st.session_state.recipe_slots,
+                            "intro": st.session_state.intro_text,
+                            "shopping_list": st.session_state.get('generated_list_draft')
+                        })
+                         st.rerun()
 
                 if content:
                     with st.expander("📖 Zubereitung & Zutaten"):
@@ -525,9 +505,16 @@ else:
             status = st.status("🛒 Verarbeite...", expanded=True)
             status.write("Fixiere Gerichte...")
             
-            # AUTOMATISCH FIXIEREN
+            # Alle fixieren
             for slot in st.session_state.recipe_slots:
                 slot['locked'] = True
+                
+            # Speichern damit Fixierung bleibt
+            save_week_plan(selected_profile_name, week_key, {
+                "recipes": st.session_state.recipe_slots,
+                "intro": st.session_state.intro_text,
+                "shopping_list": st.session_state.get('generated_list_draft')
+            })
             
             status.write("Schreibe Liste...")
             all_txt = "\n".join([s['content'] for s in st.session_state.recipe_slots if s['content']])
