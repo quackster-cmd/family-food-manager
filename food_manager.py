@@ -211,7 +211,8 @@ with st.sidebar:
             if new_rec_content and st.button("💾 In Datenbank speichern"):
                 with st.spinner("Analysiere & Speichere..."):
                     try:
-                        m = genai.GenerativeModel('gemini-2.5-flash')
+                        # Hier nehmen wir 1.5 für Stabilität beim Upload
+                        m = genai.GenerativeModel('gemini-1.5-flash')
                         p = ["Formatiere das Rezept strikt: Zeile 1: Emoji + Titel. Dann Zutaten, Dann Anleitung.", new_rec_content[0]] if isinstance(new_rec_content, list) else [new_rec_content[0]]
                         res = m.generate_content(p)
                         title, body = split_recipe_content(res.text)
@@ -238,6 +239,7 @@ if is_new_profile:
     profile_name_input = st.text_input("Profilname", "Meine Familie")
     with st.expander("⚙️ Profil erstellen", expanded=True):
         with st.form("preset_form"):
+            st.write("### 1. Wer isst mit?")
             c1, c2, c3 = st.columns(3)
             p_erw = c1.number_input("Erw.", 1, 10, 2)
             p_k3 = c2.number_input("Kind (>3)", 0, 10, 0)
@@ -283,15 +285,13 @@ else:
     current_data = profiles[selected_profile_name]
     saved_plan = get_week_plan(selected_profile_name, week_key)
     
-    # --- LOGIK FIX: WENN DATEN GELADEN WERDEN, SLIDER ANPASSEN ---
-    if saved_plan:
-        if not st.session_state.recipe_slots:
-            st.session_state.recipe_slots = saved_plan.get('recipes', [])
-            st.session_state.intro_text = saved_plan.get('intro', "")
-            if 'shopping_list' in saved_plan: st.session_state.generated_list_draft = saved_plan['shopping_list']
-            
-            # WICHTIG: Anzahl der geladenen Rezepte für den Slider merken!
-            st.session_state.days_slider_val = len(st.session_state.recipe_slots)
+    # Laden wenn Daten da sind und Session leer
+    if saved_plan and not st.session_state.recipe_slots:
+        st.session_state.recipe_slots = saved_plan.get('recipes', [])
+        st.session_state.intro_text = saved_plan.get('intro', "")
+        if 'shopping_list' in saved_plan: st.session_state.generated_list_draft = saved_plan['shopping_list']
+        # Slider synchronisieren
+        st.session_state.days_slider_val = len(st.session_state.recipe_slots)
 
     # --- PROFIL EDITIEREN ---
     with st.expander("⚙️ Profil / Einstellungen bearbeiten", expanded=False):
@@ -349,12 +349,9 @@ else:
     with st.expander("📝 Planungsvorgaben & Uploads", expanded=slots_empty):
         col_in1, col_in2 = st.columns(2)
         
-        # SLIDER LOGIK FIX: Nutze gespeicherten Wert wenn vorhanden, sonst 4
         default_days = st.session_state.get('days_slider_val', 4)
         days_to_plan = col_in1.slider("Tage:", 1, 7, default_days, key="day_slider")
-        # Aktualisiere den Session State wenn der User den Slider bewegt
-        if days_to_plan != default_days:
-            st.session_state.days_slider_val = days_to_plan
+        if days_to_plan != default_days: st.session_state.days_slider_val = days_to_plan
 
         zeit_input = col_in1.slider("Zeit (Min):", 0, 120, 30, step=5)
         manuelle_reste = col_in2.text_area("Wünsche:", "Alles offen", height=100)
@@ -364,6 +361,7 @@ else:
 
         if not st.session_state.recipe_slots:
             if st.button("🚀 Erste Planung starten", type="primary"):
+                # Initial Rating = 0 (Bitte bewerten)
                 st.session_state.recipe_slots = [{'day': i+1, 'content': None, 'locked': False, 'rating': 0} for i in range(days_to_plan)]
                 st.rerun()
 
@@ -391,10 +389,14 @@ else:
                 Du bist der Food Manager.
                 PROFIL: {current_data.get('erwachsene')} Erw, {current_data.get('kinder_ueber3')} Kind>3.
                 Ernährung: {diaet_str} (No-Gos: {vermeiden_str}).
-                Geräte: {geraete_str}. Ziele: {ziele_str}. Shops: {shops_str}.
+                Geräte vorhanden: {geraete_str}.
+                Ziele: {ziele_str}.
+                Bevorzugte Supermärkte: {shops_str}.
                 VORRAT: {current_data.get('vorrat', '')}.
-                USER WÜNSCHE: "{manuelle_reste}".
-                FIXIERT: {locked_blk}
+                
+                USER WÜNSCHE: "{manuelle_reste}" (Gehe darauf ein!).
+                
+                FIXIERT (Nicht wiederholen): {locked_blk}
                 
                 AUFGABE: Generiere {len(slots_to_fill)} NEUE Rezepte.
                 FORMAT:
@@ -409,6 +411,7 @@ else:
                     for p in prospekt_files: content.extend([Image.open(p), "Prospekt"])
                 
                 try:
+                    # HIER: Für Rezepte nutzen wir das kreative 2.5er (wenn es klappt)
                     m = genai.GenerativeModel('gemini-2.5-flash')
                     res = m.generate_content(content)
                     raw = res.text
@@ -435,7 +438,8 @@ else:
                         "shopping_list": st.session_state.get('generated_list_draft')
                     })
                     st.rerun()
-                except Exception as e: st.error(f"Fehler: {e}")
+                except Exception as e: 
+                    st.error(f"Fehler: {e} - Versuche es in 5 Sekunden nochmal.")
 
     # --- ANZEIGE ---
     if st.session_state.recipe_slots:
@@ -458,11 +462,20 @@ else:
                 with c1:
                     st.markdown(f"<div class='recipe-header'>{title}</div>", unsafe_allow_html=True)
                     
-                    rating_opts = ["0 Sterne (Nicht wiederholen)", "1 Stern (Selten)", "2 Sterne (Lecker)", "3 Sterne (Lieblingsessen)"]
+                    rating_opts = [
+                        "0 Sterne (Nicht wiederholen)", 
+                        "1 Stern (Selten)", 
+                        "2 Sterne (Lecker)", 
+                        "3 Sterne (Lieblingsessen)"
+                    ]
                     sel_idx = max(0, min(3, rating_val))
                     
                     new_rating_str = st.selectbox(
-                        "Bewertung:", rating_opts, index=sel_idx, key=f"rate_{i}_{week_key}", label_visibility="collapsed"
+                        "Bewertung:", 
+                        rating_opts, 
+                        index=sel_idx, 
+                        key=f"rate_{i}_{week_key}", 
+                        label_visibility="collapsed"
                     )
                     
                     new_val = rating_opts.index(new_rating_str)
@@ -477,9 +490,7 @@ else:
                         st.toast(f"Bewertung gespeichert!", icon="⭐")
 
                 with c2:
-                    # FIXIEREN BUGFIX: Zwingt UI Update durch Key
-                    toggle_key = f"fix_{i}_{week_key}_{is_locked}" # Dynamischer Key damit Statuswechsel sofort sichtbar
-                    
+                    toggle_key = f"fix_{i}_{week_key}_{is_locked}"
                     if st.button(f"{'🔒 Fixiert' if is_locked else '🔓 Offen'}", key=toggle_key, use_container_width=True):
                          st.session_state.recipe_slots[i]['locked'] = not is_locked
                          save_week_plan(selected_profile_name, week_key, {
@@ -505,16 +516,8 @@ else:
             status = st.status("🛒 Verarbeite...", expanded=True)
             status.write("Fixiere Gerichte...")
             
-            # Alle fixieren
             for slot in st.session_state.recipe_slots:
                 slot['locked'] = True
-                
-            # Speichern damit Fixierung bleibt
-            save_week_plan(selected_profile_name, week_key, {
-                "recipes": st.session_state.recipe_slots,
-                "intro": st.session_state.intro_text,
-                "shopping_list": st.session_state.get('generated_list_draft')
-            })
             
             status.write("Schreibe Liste...")
             all_txt = "\n".join([s['content'] for s in st.session_state.recipe_slots if s['content']])
@@ -531,7 +534,8 @@ else:
             """
             
             try:
-                ml = genai.GenerativeModel('gemini-2.0-flash')
+                # WICHTIG: Einkaufsliste immer mit 1.5 Flash (wegen 429 Fehler)
+                ml = genai.GenerativeModel('gemini-1.5-flash')
                 rl = ml.generate_content(prompt_list)
                 st.session_state.generated_list_draft = rl.text
                 
@@ -543,6 +547,7 @@ else:
                 status.update(label="Fertig!", state="complete", expanded=False)
                 time.sleep(0.5); st.rerun()
             except Exception as e:
+                status.update(label="Fehler!", state="error")
                 st.error(f"Fehler: {e}")
 
         if st.session_state.get('generated_list_draft'):
