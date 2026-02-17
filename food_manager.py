@@ -146,7 +146,6 @@ st.markdown("""
     }
     .recipe-header { font-size: 1.4rem; font-weight: 700; margin-bottom: 0px; }
     
-    /* Kleine Info Badge für Historie */
     .history-badge {
         font-size: 0.8rem; background-color: rgba(255, 255, 255, 0.1); 
         padding: 2px 8px; border-radius: 10px; color: #888; margin-bottom: 5px; display: inline-block;
@@ -154,7 +153,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- SETUP SUPABASE & CLIENT ---
+# --- SETUP ---
 try:
     if "supabase" in st.secrets and "GOOGLE_API_KEY" in st.secrets:
         SUPABASE_URL = st.secrets["supabase"]["url"]
@@ -187,16 +186,12 @@ def split_recipe_content(content):
     return title, body
 
 def get_recipe_stats(title):
-    # Einfacher Check: Existiert der Titel schon in der DB?
     try:
         clean_title = title.replace('#', '').strip()
-        # Suche nach ähnlichen Titeln
         res = supabase.table("recipe_database").select("*").ilike("title", f"%{clean_title}%").execute()
         data = res.data
         if data:
-            count = len(data)
-            last_rating = data[0].get('rating', 0)
-            return count, last_rating
+            return len(data), data[0].get('rating', 0)
         return 0, 0
     except: return 0, 0
 
@@ -231,7 +226,7 @@ def save_recipe_to_db(title, content, rating=0, source="AI"):
     try: supabase.table("recipe_database").insert(db_entry).execute()
     except: pass
 
-# --- LOGIN SCREEN ---
+# --- LOGIN ---
 if not st.session_state.session:
     st.markdown(f'<div class="main-title"><span class="brand">Food & Family</span><span class="subtitle">{get_txt("title_sub")}</span></div>', unsafe_allow_html=True)
     st.session_state.lang = st.radio("Sprache / Language", ["Deutsch", "English"], horizontal=True)
@@ -256,14 +251,13 @@ if not st.session_state.session:
             except Exception as e: st.error(f"Error: {e}")
     st.stop()
 
-# --- APP LOGIC ---
+# --- APP ---
 user_id = st.session_state.session.user.id
 user_email = st.session_state.session.user.email
 
-# SIDEBAR
 with st.sidebar:
     st.session_state.lang = st.selectbox("🌐 Sprache", ["Deutsch", "English"])
-    st.caption(f"Angemeldet als: {user_email}")
+    st.caption(f"User: {user_email}")
     if st.button(get_txt("btn_logout")):
         supabase.auth.sign_out(); st.session_state.session = None; st.rerun()
         
@@ -271,11 +265,9 @@ with st.sidebar:
     today = datetime.date.today(); year, week, _ = today.isocalendar()
     w1 = get_txt("week_curr").format(week); w2 = get_txt("week_next").format(week+1)
     
-    # Session State für Radio Button fixen
     if 'sel_week_opt' not in st.session_state: st.session_state.sel_week_opt = w1
-    
     sel_week_opt = st.radio("Woche:", [w1, w2], index=0 if w1 == st.session_state.sel_week_opt else 1)
-    st.session_state.sel_week_opt = sel_week_opt # Update State
+    st.session_state.sel_week_opt = sel_week_opt
     
     sel_week_num = week if str(week) in sel_week_opt else week + 1
     if sel_week_num > 52: sel_week_num = 1; year += 1
@@ -302,14 +294,15 @@ with st.sidebar:
         if new_rec and st.button(get_txt("btn_save_db")):
             with st.spinner("..."):
                 try:
-                    m = genai.GenerativeModel('gemini-1.5-flash')
+                    # HIER AUCH 2.5 NUTZEN
+                    m = genai.GenerativeModel('gemini-2.5-flash')
                     res = m.generate_content(["Formatiere Rezept: Zeile 1 Emoji+Titel. Dann Zutaten/Anleitung.", new_rec[0]] if isinstance(new_rec, list) else [new_rec[0]])
                     t, b = split_recipe_content(res.text)
                     save_recipe_to_db(t, res.text, rating=rating_opts.index(r_sel), source="User")
                     st.success(get_txt("save_success"))
                 except Exception as e: st.error(f"Error: {e}")
 
-# --- MAIN PAGE ---
+# --- MAIN ---
 st.markdown(f'<div class="main-title"><span class="brand">Food & Family</span><span class="subtitle">{get_txt("title_sub")}</span></div>', unsafe_allow_html=True)
 
 db_profile = get_profile(user_id)
@@ -337,7 +330,6 @@ else:
         st.session_state.generated_list_draft = data.get('shopping_list', "")
         st.session_state.days_slider_val = len(st.session_state.recipe_slots)
 
-    # TITEL FIX: Variable sel_week_opt ist jetzt sicher da
     st.markdown(f'<div class="section-title">{get_txt("header_plan")} {sel_week_opt}</div>', unsafe_allow_html=True)
 
     with st.expander(get_txt("profile_edit"), expanded=False):
@@ -363,12 +355,7 @@ else:
             p_vor = st.text_area(get_txt("lbl_pantry"), pref.get("vorrat",""))
             
             if st.form_submit_button(get_txt("btn_save_profile")):
-                d = {
-                    "erwachsene":p_erw,"kinder_ueber3":p_k3,"kinder_unter3":p_ku3,
-                    "diaet":p_dia,"vermeiden_select":p_verm_sel,"vermeiden_text":p_verm_txt,
-                    "geraete":p_geraete,"ziele":p_ziele,"shops":p_shops,
-                    "vorrat":p_vor
-                }
+                d = {"erwachsene":p_erw,"kinder_ueber3":p_k3,"kinder_unter3":p_ku3,"diaet":p_dia,"vermeiden_select":p_verm_sel,"vermeiden_text":p_verm_txt,"geraete":p_geraete,"ziele":p_ziele,"shops":p_shops,"vorrat":p_vor}
                 save_profile_db(user_id, d); st.success(get_txt("save_success")); st.rerun()
 
     empty = len(st.session_state.recipe_slots) == 0
@@ -377,9 +364,8 @@ else:
         d_def = st.session_state.get('days_slider_val', 4)
         days = c_i1.slider(get_txt("lbl_days"), 1, 7, d_def, key="ds")
         if days != d_def: st.session_state.days_slider_val = days
-        
         mins = c_i1.slider(get_txt("lbl_time"), 0, 120, 30, step=5)
-        wishes = c_i2.text_area(get_txt("lbl_wishes")) # Reste entfernt
+        wishes = c_i2.text_area(get_txt("lbl_wishes"))
         
         if not st.session_state.recipe_slots and st.button(get_txt("btn_start_plan"), type="primary"):
             st.session_state.recipe_slots = [{'day': i+1, 'content': None, 'locked': False, 'rating': 0} for i in range(days)]; st.rerun()
@@ -394,7 +380,6 @@ else:
             with st.spinner(get_txt("spinner_cooking")):
                 locked = [s['content'] for s in slots if s['locked'] and s['content']]
                 p_text = f"Rolle: Food Manager. Profil: {pref.get('erwachsene')} Erw, {pref.get('kinder_ueber3')} Kind>3. Ernährung: {','.join(pref.get('diaet',[]))}. Wünsche: {wishes}. Fixiert: {' '.join(locked)}. AUFGABE: {len(to_fill)} Rezepte. FORMAT: 1. Intro -> '---INTRO_ENDE---'. 2. Rezepte getrennt '---TRENNER---'. 3. Titel mit Emoji. 4. Nährwerte (Kcal/E/K/F) am Ende. {get_txt('prompt_lang')}"
-                
                 try:
                     m = genai.GenerativeModel('gemini-2.5-flash')
                     res = m.generate_content(p_text)
@@ -402,14 +387,10 @@ else:
                     if "---INTRO_ENDE---" in raw: ip, rp = raw.split("---INTRO_ENDE---"); st.session_state.intro_text = ip.strip()
                     else: rp = raw
                     parts = [p.strip() for p in rp.split("---TRENNER---") if len(p.strip()) > 20]
-                    
                     idx = 0
                     for p in parts:
-                        if idx < len(to_fill):
-                            slots[to_fill[idx]]['content'] = p; idx += 1
-                    
-                    save_week_plan_db(user_id, week_key, {"recipes": slots, "intro": st.session_state.intro_text, "shopping_list": st.session_state.get('generated_list_draft')})
-                    st.rerun()
+                        if idx < len(to_fill): slots[to_fill[idx]]['content'] = p; idx += 1
+                    save_week_plan_db(user_id, week_key, {"recipes": slots, "intro": st.session_state.intro_text, "shopping_list": st.session_state.get('generated_list_draft')}); st.rerun()
                 except Exception: st.error("Fehler bei KI. Bitte neu versuchen.")
 
     if st.session_state.recipe_slots:
@@ -417,16 +398,11 @@ else:
         
         for i, s in enumerate(st.session_state.recipe_slots[:days]):
             cnt = s.get('content'); tit, bod = split_recipe_content(cnt) if cnt else ("...", "")
-            
-            # --- HISTORIE CHECK ---
             hist_count, hist_rating = get_recipe_stats(tit)
             
             with st.container(border=True):
-                # Historie anzeigen (über dem Titel)
-                if hist_count > 0:
-                    st.markdown(f'<span class="history-badge">{get_txt("history_found").format(hist_count, "⭐"*hist_rating)}</span>', unsafe_allow_html=True)
-                else:
-                    st.markdown(f'<span class="history-badge">{get_txt("history_new")}</span>', unsafe_allow_html=True)
+                if hist_count > 0: st.markdown(f'<span class="history-badge">{get_txt("history_found").format(hist_count, "⭐"*hist_rating)}</span>', unsafe_allow_html=True)
+                else: st.markdown(f'<span class="history-badge">{get_txt("history_new")}</span>', unsafe_allow_html=True)
 
                 c1, c2 = st.columns([0.7, 0.3])
                 lck = s.get('locked', False); rat = s.get('rating', 0)
@@ -438,7 +414,6 @@ else:
                         new_val = r_opts.index(new_r)
                         st.session_state.recipe_slots[i]['rating'] = new_val
                         save_week_plan_db(user_id, week_key, {"recipes": st.session_state.recipe_slots, "intro": st.session_state.intro_text, "shopping_list": st.session_state.get('generated_list_draft')})
-                        # Speichern in Global DB wenn bewertet
                         if new_val > 0: save_recipe_to_db(tit, cnt, rating=new_val, source="AI-Plan")
                         st.rerun()
                 with c2:
@@ -463,22 +438,21 @@ else:
             all_t = "\n".join([s['content'] for s in st.session_state.recipe_slots if s['content']])
             p = f"Erstelle Einkaufsliste für:\n{all_t}\nVorrat ignorieren: {pref.get('vorrat','')}. Sortiert nach Kategorie. Jede Zutat mit Bindestrich -. {get_txt('prompt_lang')}"
             
-            # --- RETRY LOGIC GEGEN 429 ---
             success = False
             try:
-                ml = genai.GenerativeModel('gemini-1.5-flash') # Sparsames Modell
+                # WICHTIG: Hier jetzt auch 2.5 nutzen!
+                ml = genai.GenerativeModel('gemini-2.5-flash')
                 rl = ml.generate_content(p)
                 success = True
             except:
-                status.write("Google überlastet (429). Warte 5 Sekunden...")
+                status.write("Google ausgelastet (429). Warte 5s...")
                 time.sleep(5)
                 try:
-                    ml = genai.GenerativeModel('gemini-1.5-flash')
+                    ml = genai.GenerativeModel('gemini-2.5-flash')
                     rl = ml.generate_content(p)
                     success = True
                 except Exception as e:
-                    status.update(label="Fehler bei Einkaufsliste", state="error")
-                    st.error(f"Konnte Liste nicht erstellen: {e}")
+                    status.update(label="Fehler", state="error"); st.error(f"Einkaufsliste fehlgeschlagen: {e}")
             
             if success:
                 st.session_state.generated_list_draft = rl.text
