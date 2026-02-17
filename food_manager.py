@@ -13,7 +13,7 @@ TRANSLATIONS = {
     "Deutsch": {
         "title_sub": "Manager",
         "login_fail": "Anmeldung fehlgeschlagen:",
-        "login_success": "Erfolg! Bitte E-Mail bestätigen.",
+        "login_success": "Erfolg! Bitte einloggen.",
         "tab_login": "Anmelden",
         "tab_signup": "Registrieren",
         "email": "E-Mail Adresse",
@@ -66,7 +66,7 @@ TRANSLATIONS = {
     "English": {
         "title_sub": "Manager",
         "login_fail": "Login failed:",
-        "login_success": "Success! Check email.",
+        "login_success": "Success! Please log in.",
         "tab_login": "Login",
         "tab_signup": "Sign Up",
         "email": "Email",
@@ -126,22 +126,13 @@ st.markdown("""
         font-size: 3rem; font-weight: 900;
         background: -webkit-linear-gradient(45deg, #FF6B6B, #4ECDC4);
         -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-        display: block; /* Fix für Mobile: Eigene Zeile */
+        display: block;
     }
     .main-title span.subtitle {
-        font-size: 1.5rem;
-        font-weight: 700;
-        color: #888; /* Helles Grau für Sichtbarkeit */
-        display: block; 
-        margin-top: -5px;
-        letter-spacing: 2px;
-        text-transform: uppercase;
+        font-size: 1.5rem; font-weight: 700; color: #888;
+        display: block; margin-top: -5px; letter-spacing: 2px; text-transform: uppercase;
     }
-    /* Dark Mode Support für Subtitle */
-    @media (prefers-color-scheme: dark) {
-        .main-title span.subtitle { color: #ccc; }
-    }
-    
+    @media (prefers-color-scheme: dark) { .main-title span.subtitle { color: #ccc; } }
     .section-title {
         font-size: 2rem; font-weight: 800; margin-top: 30px; margin-bottom: 20px;
         background: -webkit-linear-gradient(45deg, #FF6B6B, #4ECDC4);
@@ -150,15 +141,14 @@ st.markdown("""
     }
     .intro-box {
         padding: 15px; background-color: rgba(78, 205, 196, 0.15);
-        border-radius: 10px; margin-bottom: 25px; font-style: italic;
-        border-left: 5px solid #4ECDC4;
+        border-radius: 10px; margin-bottom: 25px; font-style: italic; border-left: 5px solid #4ECDC4;
     }
     .recipe-header { font-size: 1.5rem; font-weight: 700; margin-bottom: 0px; }
     .kw-title { font-size: 1.8rem; font-weight: 800; margin-bottom: 15px; color: #4ECDC4; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- SETUP ---
+# --- SETUP SUPABASE & CLIENT ---
 try:
     if "supabase" in st.secrets and "GOOGLE_API_KEY" in st.secrets:
         SUPABASE_URL = st.secrets["supabase"]["url"]
@@ -172,6 +162,19 @@ except Exception as e:
     st.error(f"🚨 Error: {e}")
     st.stop()
 
+# --- SESSION & AUTH RESTORE (DER WICHTIGE FIX!) ---
+if 'session' not in st.session_state: st.session_state.session = None
+if 'lang' not in st.session_state: st.session_state.lang = "Deutsch"
+
+# Wenn eine Session existiert, dem Supabase-Client den Ausweis zeigen!
+if st.session_state.session:
+    try:
+        supabase.postgrest.auth(st.session_state.session.access_token)
+    except:
+        st.session_state.session = None # Falls Token abgelaufen, Session löschen
+
+def get_txt(key): return TRANSLATIONS[st.session_state.lang][key]
+
 # --- HELPER ---
 def split_recipe_content(content):
     if not content: return "...", ""
@@ -181,41 +184,47 @@ def split_recipe_content(content):
     return title, body
 
 def get_profile(user_id):
-    response = supabase.table("profiles").select("*").eq("user_id", user_id).execute()
-    return response.data[0] if response.data else {}
+    try:
+        response = supabase.table("profiles").select("*").eq("user_id", user_id).execute()
+        return response.data[0] if response.data else {}
+    except: return {}
 
 def save_profile_db(user_id, data):
     existing = get_profile(user_id)
     payload = {"user_id": user_id, "preferences": data, "pantry": data.get("vorrat", "")}
     if existing: payload["id"] = existing["id"]
-    supabase.table("profiles").upsert(payload).execute()
+    # Hier knallte es vorher - jetzt mit Token sollte es gehen
+    try:
+        supabase.table("profiles").upsert(payload).execute()
+    except Exception as e:
+        st.error(f"Datenbank Fehler: {e}")
+        st.stop()
 
 def get_week_plan_db(user_id, week_key):
-    response = supabase.table("weekly_plans").select("*").eq("user_id", user_id).eq("week_key", week_key).execute()
-    return response.data[0] if response.data else None
+    try:
+        response = supabase.table("weekly_plans").select("*").eq("user_id", user_id).eq("week_key", week_key).execute()
+        return response.data[0] if response.data else None
+    except: return None
 
 def save_week_plan_db(user_id, week_key, plan_data):
     existing = get_week_plan_db(user_id, week_key)
     payload = {"user_id": user_id, "week_key": week_key, "plan_data": plan_data}
     if existing: payload["id"] = existing["id"]
-    supabase.table("weekly_plans").upsert(payload).execute()
+    try:
+        supabase.table("weekly_plans").upsert(payload).execute()
+    except Exception as e:
+        st.error(f"Speicherfehler Plan: {e}")
 
 def save_recipe_to_db(title, content, rating=0, source="AI"):
     db_entry = {"title": title, "content": content, "rating": rating, "source": source, "added_date": str(datetime.date.today())}
-    supabase.table("recipe_database").insert(db_entry).execute()
+    try:
+        supabase.table("recipe_database").insert(db_entry).execute()
+    except Exception as e:
+        st.error(f"Fehler Rezept DB: {e}")
 
-# --- AUTH & LANGUAGE ---
-if 'user' not in st.session_state: st.session_state.user = None
-if 'lang' not in st.session_state: st.session_state.lang = "Deutsch" # Default Deutsch
-
-# Sprach-Wahl in Sidebar ganz oben (wenn eingeloggt) oder Main (wenn ausgeloggt)
-def get_txt(key):
-    return TRANSLATIONS[st.session_state.lang][key]
-
-if not st.session_state.user:
-    st.markdown('<div class="main-title"><span class="brand">Food & Family</span><span class="subtitle">Manager</span></div>', unsafe_allow_html=True)
-    
-    # Sprachwahl Login Screen
+# --- LOGIN SCREEN ---
+if not st.session_state.session:
+    st.markdown(f'<div class="main-title"><span class="brand">Food & Family</span><span class="subtitle">{get_txt("title_sub")}</span></div>', unsafe_allow_html=True)
     st.session_state.lang = st.radio("Language / Sprache", ["Deutsch", "English"], horizontal=True)
     
     tab1, tab2 = st.tabs([get_txt("tab_login"), get_txt("tab_signup")])
@@ -225,8 +234,9 @@ if not st.session_state.user:
         password = st.text_input(get_txt("password"), type="password", key="l_pw")
         if st.button(get_txt("btn_login")):
             try:
+                # WICHTIG: Session speichern, nicht nur User
                 auth_resp = supabase.auth.sign_in_with_password({"email": email, "password": password})
-                st.session_state.user = auth_resp.user
+                st.session_state.session = auth_resp.session
                 st.rerun()
             except Exception as e: st.error(f"{get_txt('login_fail')} {e}")
             
@@ -240,16 +250,17 @@ if not st.session_state.user:
             except Exception as e: st.error(f"Error: {e}")
     st.stop()
 
-# --- APP LOGIC ---
-user_id = st.session_state.user.id
+# --- EINGELOGGT: APP LOGIC ---
+user_id = st.session_state.session.user.id
+user_email = st.session_state.session.user.email
 
 with st.sidebar:
-    # Sprachwahl Sidebar
     st.session_state.lang = st.selectbox("🌐 Sprache", ["Deutsch", "English"])
-    
-    st.write(f"👤 {st.session_state.user.email}")
+    st.write(f"👤 {user_email}")
     if st.button(get_txt("btn_logout")):
-        supabase.auth.sign_out(); st.session_state.user = None; st.rerun()
+        supabase.auth.sign_out()
+        st.session_state.session = None # Session löschen
+        st.rerun()
         
     st.divider(); st.subheader(get_txt("header_planning"))
     today = datetime.date.today(); year, week, _ = today.isocalendar()
@@ -290,7 +301,7 @@ with st.sidebar:
                     st.success(get_txt("save_success"))
                 except Exception as e: st.error(f"Error: {e}")
 
-# --- MAIN ---
+# --- MAIN CONTENT ---
 st.markdown(f'<div class="main-title"><span class="brand">Food & Family</span><span class="subtitle">{get_txt("title_sub")}</span></div>', unsafe_allow_html=True)
 
 db_profile = get_profile(user_id)
@@ -330,15 +341,24 @@ else:
             p_dia = st.multiselect(get_txt("lbl_diet"), ["Alles","Vegetarisch","Vegan"], default=dia_def)
             
             c_a, c_b = st.columns(2)
-            # Default empty list if keys missing
             av_def = pref.get("vermeiden_select", [])
             p_verm_sel = c_a.multiselect(get_txt("lbl_avoid"), ["Nüsse","Pilze","Tomaten","Fisch","Schwein"], default=av_def)
             p_verm_txt = c_b.text_input("Sonstiges", pref.get("vermeiden_text",""))
             
+            # WIEDERHERGESTELLTE FELDER
+            p_geraete = st.multiselect(get_txt("lbl_devices"), ["Backofen","Mikrowelle","Mixer","Herd","Air Fryer","Thermomix"], default=pref.get("geraete", ["Backofen","Herd"]))
+            p_ziele = st.multiselect(get_txt("lbl_goals"), ["Geld sparen","Schnell","Gesund","Neue Rezepte"], default=pref.get("ziele", ["Geld sparen"]))
+            p_shops = st.multiselect(get_txt("lbl_shops"), ["Aldi","Lidl","Rewe","Edeka","DM"], default=pref.get("shops", ["Aldi","Rewe"]))
+            
             p_vor = st.text_area(get_txt("lbl_pantry"), pref.get("vorrat",""))
             
             if st.form_submit_button(get_txt("btn_save_profile")):
-                d = {"erwachsene":p_erw,"kinder_ueber3":p_k3,"kinder_unter3":p_ku3,"diaet":p_dia,"vermeiden_select":p_verm_sel,"vermeiden_text":p_verm_txt,"vorrat":p_vor}
+                d = {
+                    "erwachsene":p_erw,"kinder_ueber3":p_k3,"kinder_unter3":p_ku3,
+                    "diaet":p_dia,"vermeiden_select":p_verm_sel,"vermeiden_text":p_verm_txt,
+                    "geraete":p_geraete,"ziele":p_ziele,"shops":p_shops,
+                    "vorrat":p_vor
+                }
                 save_profile_db(user_id, d); st.success(get_txt("save_success")); st.rerun()
 
     st.divider(); st.markdown(f'<div class="kw-title">{get_txt("header_plan")} {sel_week_opt}</div>', unsafe_allow_html=True)
@@ -368,7 +388,7 @@ else:
                 p_text = f"Rolle: Food Manager. Profil: {pref.get('erwachsene')} Erw, {pref.get('kinder_ueber3')} Kind>3. Ernährung: {','.join(pref.get('diaet',[]))}. Wünsche: {wishes}. Fixiert: {' '.join(locked)}. AUFGABE: {len(to_fill)} Rezepte. FORMAT: 1. Intro -> '---INTRO_ENDE---'. 2. Rezepte getrennt '---TRENNER---'. 3. Titel mit Emoji. 4. Nährwerte (Kcal/E/K/F). {get_txt('prompt_lang')}"
                 
                 try:
-                    m = genai.GenerativeModel('gemini-2.5-flash') # Try creative
+                    m = genai.GenerativeModel('gemini-2.5-flash')
                     res = m.generate_content(p_text)
                     raw = res.text
                     if "---INTRO_ENDE---" in raw: ip, rp = raw.split("---INTRO_ENDE---"); st.session_state.intro_text = ip.strip()
