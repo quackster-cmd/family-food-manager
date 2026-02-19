@@ -9,8 +9,7 @@ from supabase import create_client, Client
 # --- KONFIGURATION ---
 st.set_page_config(page_title="Food & Family Manager", page_icon="🥑", layout="wide", initial_sidebar_state="collapsed")
 
-# --- MOCK SAAS STATUS (Später aus der Datenbank lesen) ---
-# Setze auf True, um die Upload-Felder freizuschalten
+# --- MOCK SAAS STATUS ---
 USER_IS_PREMIUM = False 
 
 # --- OPTIONEN LISTEN ---
@@ -195,23 +194,27 @@ with st.sidebar:
     st.divider()
     with st.expander("📚 Rezept manuell hochladen"):
         up_mode = st.radio("Eingabe:", ["Text/Link", "Foto"], horizontal=True)
-        new_rec = None
+        new_rec_data = None
+        
         if up_mode == "Foto":
             up_img = st.file_uploader("Bild hochladen", type=["jpg","png"])
-            if up_img: new_rec = [Image.open(up_img), "Analysiere: Titel, Zutaten, Anleitung. Antworte auf DEUTSCH."]
+            if up_img: new_rec_data = Image.open(up_img)
         else:
             txt_in = st.text_area("Text oder Link einfügen")
-            if txt_in: new_rec = [f"Formatiere als Rezept: {txt_in}. Antworte auf DEUTSCH."]
+            if txt_in: new_rec_data = txt_in
         
         rating_opts = ["0 (Neu)", "1 (Selten)", "2 (Lecker)", "3 (Liebling)"]
         r_sel = st.selectbox("Bewertung:", rating_opts, index=2)
         
-        if new_rec and st.button("🔍 Rezept analysieren"):
+        if new_rec_data is not None and st.button("🔍 Rezept analysieren"):
             with st.spinner("Lese Rezept..."):
                 try:
                     m = genai.GenerativeModel('gemini-2.5-flash')
-                    res = m.generate_content(["Formatiere Rezept: Zeile 1 Emoji+Titel. Dann Zutaten/Anleitung.", new_rec[0]] if isinstance(new_rec, list) else [new_rec[0]])
-                    st.session_state.draft_recipe = res.text
+                    prompt_instructions = "Extrahiere das Rezept. Formatiere es so: Zeile 1 muss ein Emoji und der Titel sein (mit einem # davor). Danach Zutaten und Anleitung. WICHTIGE REGEL: Schreibe AUSSCHLIESSLICH das Rezept. Keine Begrüßung, kein 'Gerne, hier ist das Rezept', absolut kein Text vor dem #."
+                    res = m.generate_content([prompt_instructions, new_rec_data])
+                    
+                    clean_title, clean_body = split_recipe_content(res.text)
+                    st.session_state.draft_recipe = f"# {clean_title}\n\n{clean_body}"
                 except Exception as e: st.error(f"Fehler: {e}")
         
         if 'draft_recipe' in st.session_state and st.session_state.draft_recipe:
@@ -233,7 +236,6 @@ tab_week, tab_community = st.tabs(["📅 Deine Woche", "🌍 Community & Entdeck
 
 with tab_week:
     if is_new:
-        # NEU: Das interaktive Onboarding (Wizard-Style)
         if 'ob_step' not in st.session_state: st.session_state.ob_step = 1
         if 'ob_data' not in st.session_state: st.session_state.ob_data = {"username":"", "erwachsene":1, "kinder_ueber3":0, "kinder_unter3":0, "diaet":["Alles"], "vermeiden_select":[], "vermeiden_text":"", "geraete":["Herd"], "ziele":["Geld sparen"], "shops":["Aldi"], "vorrat":""}
         
@@ -325,12 +327,9 @@ with tab_week:
             mins = c_i1.slider("Zeit (Min)", 0, 120, 30, step=5)
             wishes = c_i2.text_area("Wünsche für die Woche")
             
-            # NEU: Smart Prep Schalter
             smart_prep = st.toggle("🔄 Smart Prep aktivieren (Reste verwerten / Doppelte Portionen kochen)")
-            
             c_up1, c_up2 = st.columns(2)
             
-            # NEU: Freemium Logik für Datei-Uploads
             if USER_IS_PREMIUM:
                 kuehlschrank_img = c_up1.file_uploader("📸 Kühlschrank Foto", type=["jpg","png"])
                 prospekt_files = c_up2.file_uploader("📰 Prospekte", type=["jpg","png"], accept_multiple_files=True)
@@ -356,11 +355,9 @@ with tab_week:
                     user_bookmarks = pref.get("bookmarks", [])
                     bookmark_prompt = f" Bevorzugte Rezepte: {', '.join(user_bookmarks)}." if user_bookmarks else ""
                     
-                    # NEU: Smart Prep Instruktion
                     smart_prep_prompt = " PLANE SMART PREP: Kombiniere Zutaten schlau. Koche z.B. an einem Tag absichtlich mehr Nudeln/Kartoffeln, um sie am Folgetag direkt weiterzuverwenden. Markiere diese Zeitersparnis im Text!" if smart_prep else ""
                     
                     content_prompt = []
-                    # NEU: Erweiterter Prompt für Makros & Budget
                     p_text = f"Rolle: Food Manager. Kunde: {username}. Profil: {pref.get('erwachsene')} Erw, {pref.get('kinder_ueber3')} Kind>3. Ernährung: {','.join(pref.get('diaet',[]))}. Wünsche: {wishes}.{bookmark_prompt}{smart_prep_prompt} Fixiert: {' '.join(locked)}. AUFGABE: {len(to_fill)} Rezepte. WICHTIG: Erstelle AUSSCHLIESSLICH vollwertige Hauptmahlzeiten. REGELN: 1. Titel absolut neutral. 2. Intro -> '---INTRO_ENDE---'. 3. Rezepte getrennt '---TRENNER---'. 4. Titel mit Emoji. 5. AM ENDE JEDES REZEPTS MÜSSEN DIE MAKROS (Kcal, Protein, Kohlenhydrate, Fett) UND DIE GESCHÄTZTEN KOSTEN PRO PORTION (in Euro) STEHEN. Antworte auf DEUTSCH."
                     content_prompt.append(p_text)
                     
