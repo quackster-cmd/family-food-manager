@@ -3,12 +3,10 @@ import google.generativeai as genai
 from PIL import Image
 import datetime
 import time
-import math
 from collections import Counter
 from supabase import create_client, Client
 
 # --- KONFIGURATION ---
-# NEU: initial_sidebar_state="collapsed" lässt die Seitenleiste standardmäßig zu.
 st.set_page_config(page_title="Food & Family Manager", page_icon="🥑", layout="wide", initial_sidebar_state="collapsed")
 
 # --- OPTIONEN LISTEN (KOMPLETT) ---
@@ -90,39 +88,6 @@ if st.session_state.session:
     except: st.session_state.session = None
 
 # --- HELPER FUNCTIONS ---
-
-# NEU: Bilder-Grid Generator für Prospekte
-def combine_images_to_grid(uploaded_files, max_cols=4):
-    if not uploaded_files: return None
-    images = [Image.open(f) for f in uploaded_files]
-    
-    # Bilder auf einheitliche Breite bringen, um Speicher zu sparen
-    base_width = 800
-    resized = []
-    for img in images:
-        if img.mode != 'RGB': img = img.convert('RGB')
-        wpercent = (base_width / float(img.size[0]))
-        hsize = int((float(img.size[1]) * float(wpercent)))
-        resized.append(img.resize((base_width, hsize), Image.Resampling.LANCZOS))
-        
-    widths, heights = zip(*(i.size for i in resized))
-    num = len(resized)
-    cols = min(num, max_cols)
-    rows = math.ceil(num / cols)
-    
-    max_w = max(widths)
-    max_h = max(heights)
-    
-    # Neues leeres Bild erstellen
-    grid = Image.new('RGB', (cols * max_w, rows * max_h), color='white')
-    
-    for i, img in enumerate(resized):
-        x = (i % cols) * max_w
-        y = (i // cols) * max_h
-        grid.paste(img, (x, y))
-        
-    return grid
-
 def split_recipe_content(content):
     if not content: return "...", ""
     lines = content.split('\n')
@@ -212,7 +177,6 @@ user_email = st.session_state.session.user.email
 
 # SIDEBAR
 with st.sidebar:
-    # NEU: Überschrift "Profil" hinzugefügt
     st.markdown("### 👤 Profil")
     st.caption(f"Angemeldet: {user_email}")
     if st.button("Abmelden"):
@@ -241,7 +205,6 @@ with st.sidebar:
             st.markdown(f"""<div class="trend-box"><span class="trend-rank">#{idx+1}</span> {title} <br><small>🔥 {count}x gekocht</small></div>""", unsafe_allow_html=True)
     else: st.caption("Noch keine Daten.")
 
-    # NEU: Rezept Review vor dem Speichern
     st.divider()
     with st.expander("📚 Rezept manuell hochladen"):
         up_mode = st.radio("Eingabe:", ["Text/Link", "Foto"], horizontal=True)
@@ -256,7 +219,6 @@ with st.sidebar:
         rating_opts = ["0 (Neu)", "1 (Selten)", "2 (Lecker)", "3 (Liebling)"]
         r_sel = st.selectbox("Bewertung:", rating_opts, index=2)
         
-        # Schritt 1: Analysieren
         if new_rec and st.button("🔍 Rezept analysieren"):
             with st.spinner("Lese Rezept..."):
                 try:
@@ -265,7 +227,6 @@ with st.sidebar:
                     st.session_state.draft_recipe = res.text
                 except Exception as e: st.error(f"Fehler: {e}")
         
-        # Schritt 2: Bearbeiten & Final speichern
         if 'draft_recipe' in st.session_state and st.session_state.draft_recipe:
             st.markdown("---")
             st.markdown("**📝 Rezept überprüfen & bearbeiten:**")
@@ -275,7 +236,7 @@ with st.sidebar:
                 t, b = split_recipe_content(edited_recipe)
                 save_recipe_to_db(t, edited_recipe, rating=rating_opts.index(r_sel), source="User")
                 st.success("Erfolgreich gespeichert!")
-                st.session_state.draft_recipe = None # Reset
+                st.session_state.draft_recipe = None
                 time.sleep(1)
                 st.rerun()
 
@@ -314,9 +275,7 @@ else:
 
     st.markdown(f'<div class="section-title">Planung für {sel_week_opt}</div>', unsafe_allow_html=True)
 
-    # NEU: Button-Container Logik anstatt Expander, damit es 100% schließt
-    if 'show_profile_form' not in st.session_state:
-        st.session_state.show_profile_form = False
+    if 'show_profile_form' not in st.session_state: st.session_state.show_profile_form = False
 
     if st.button("⚙️ Profil / Einstellungen bearbeiten"):
         st.session_state.show_profile_form = not st.session_state.show_profile_form
@@ -348,11 +307,9 @@ else:
                         "geraete":p_geraete,"ziele":p_ziele,"shops":p_shops,"vorrat":p_vor
                     }
                     save_profile_db(user_id, d)
-                    # Fenster ausblenden und neuladen
                     st.session_state.show_profile_form = False 
                     st.success("Gespeichert!")
-                    time.sleep(0.5)
-                    st.rerun()
+                    time.sleep(0.5); st.rerun()
 
     empty = len(st.session_state.recipe_slots) == 0
     with st.expander(f"📝 Planung starten", expanded=empty):
@@ -364,8 +321,6 @@ else:
         wishes = c_i2.text_area("Wünsche für die Woche")
         c_up1, c_up2 = st.columns(2)
         kuehlschrank_img = c_up1.file_uploader("📸 Kühlschrank Foto", type=["jpg","png"])
-        
-        # NEU: Das Limit von 10 wurde entfernt
         prospekt_files = c_up2.file_uploader("📰 Prospekte (beliebig viele)", type=["jpg","png"], accept_multiple_files=True)
         
         if not st.session_state.recipe_slots and st.button("🚀 Planung starten", type="primary"):
@@ -378,20 +333,28 @@ else:
         
         to_fill = [i for i, s in enumerate(slots) if s['content'] is None]
         if to_fill:
-            with st.spinner("Der digitale Koch brutzelt..."):
+            with st.spinner("Der digitale Koch brutzelt... Lese Bilder & analysiere Angebote..."):
                 locked = [s['content'] for s in slots if s['locked'] and s['content']]
                 username = pref.get('username', 'Chefkoch')
                 
                 content_prompt = []
-                p_text = f"Rolle: Food Manager. Kunde: {username}. Profil: {pref.get('erwachsene')} Erw, {pref.get('kinder_ueber3')} Kind>3. Ernährung: {','.join(pref.get('diaet',[]))}. Wünsche: {wishes}. Fixiert: {' '.join(locked)}. AUFGABE: {len(to_fill)} Rezepte. WICHTIG: Erstelle AUSSCHLIESSLICH vollwertige Hauptmahlzeiten. Ignoriere Angebote für Snacks (wie Kekse, Schokolade). FORMAT: 1. Intro (Sprich den Kunden mit {username} an) -> '---INTRO_ENDE---'. 2. Rezepte getrennt '---TRENNER---'. 3. Titel mit Emoji. 4. Nährwerte (Kcal/E/K/F) am Ende. Antworte auf DEUTSCH."
+                # NEU: Prompt mit strikter Regel für neutrale Titel
+                p_text = f"Rolle: Food Manager. Kunde: {username}. Profil: {pref.get('erwachsene')} Erw, {pref.get('kinder_ueber3')} Kind>3. Ernährung: {','.join(pref.get('diaet',[]))}. Wünsche: {wishes}. Fixiert: {' '.join(locked)}. AUFGABE: {len(to_fill)} Rezepte. WICHTIG: Erstelle AUSSCHLIESSLICH vollwertige Hauptmahlzeiten. Ignoriere Snacks. REGELN FÜR REZEPTE: 1. Titel MÜSSEN absolut neutral und allgemein gültig sein (z.B. '🍝 Spaghetti Bolognese'). Verwende NIEMALS den Namen des Nutzers im Rezepttitel! 2. Intro (Sprich den Kunden mit {username} an) -> '---INTRO_ENDE---'. 3. Rezepte getrennt '---TRENNER---'. 4. Titel mit Emoji. 5. Nährwerte (Kcal/E/K/F) am Ende. Antworte auf DEUTSCH."
                 content_prompt.append(p_text)
-                if kuehlschrank_img: content_prompt.extend([Image.open(kuehlschrank_img), "Nutze Zutaten aus dem Kühlschrank!"])
                 
-                # NEU: Nutze die Grid-Funktion, um alle Seiten zu einem Riesenbild zu verschmelzen
+                if kuehlschrank_img: 
+                    k_img = Image.open(kuehlschrank_img)
+                    k_img.thumbnail((800, 800)) # Komprimierung
+                    content_prompt.extend([k_img, "Nutze Zutaten aus dem Kühlschrank!"])
+                
+                # NEU: Effiziente Einzelkomprimierung aller Prospekte statt Fehleranfälligem Riesen-Grid
                 if prospekt_files: 
-                    grid_img = combine_images_to_grid(prospekt_files)
-                    if grid_img:
-                        content_prompt.extend([grid_img, "Nutze Angebote aus diesem gebündelten Prospekt-Katalog!"])
+                    for p in prospekt_files:
+                        p_img = Image.open(p)
+                        if p_img.mode != 'RGB': p_img = p_img.convert('RGB')
+                        p_img.thumbnail((1000, 1000)) # Schrumpft das Bild auf max. 1000px Kantenlänge, behält Proportionen
+                        content_prompt.append(p_img)
+                    content_prompt.append("Lese diese komprimierten Prospektseiten und nutze die Angebote für die Rezeptplanung!")
 
                 try:
                     m = genai.GenerativeModel('gemini-2.5-flash')
