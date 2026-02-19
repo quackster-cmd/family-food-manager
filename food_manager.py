@@ -57,6 +57,11 @@ st.markdown("""
     div[data-testid="stCheckbox"] {
         margin-bottom: -15px !important; /* Zieht die Zeilen enger zusammen */
     } 
+    /* NEU: Sofortiges Durchstreichen per CSS, wenn angehakt */
+    div[data-testid="stCheckbox"] label input:checked + div {
+        text-decoration: line-through;
+        color: #888;
+    }
     
     /* TREND BOX */
     .trend-box {
@@ -306,7 +311,10 @@ else:
                     "diaet":p_dia,"vermeiden_select":p_verm_sel,"vermeiden_text":p_verm_txt,
                     "geraete":p_geraete,"ziele":p_ziele,"shops":p_shops,"vorrat":p_vor
                 }
-                save_profile_db(user_id, d); st.success("Gespeichert!"); st.rerun()
+                save_profile_db(user_id, d)
+                st.success("Gespeichert!")
+                time.sleep(0.8) # NEU: Kurze Pause, damit die Meldung lesbar ist
+                st.rerun()      # Schließt den Expander nach dem Neuladen
 
     empty = len(st.session_state.recipe_slots) == 0
     with st.expander(f"📝 Planung starten", expanded=empty):
@@ -318,7 +326,12 @@ else:
         wishes = c_i2.text_area("Wünsche für die Woche")
         c_up1, c_up2 = st.columns(2)
         kuehlschrank_img = c_up1.file_uploader("📸 Kühlschrank Foto", type=["jpg","png"])
-        prospekt_files = c_up2.file_uploader("📰 Prospekte", type=["jpg","png"], accept_multiple_files=True)
+        prospekt_files = c_up2.file_uploader("📰 Prospekte (Max 10)", type=["jpg","png"], accept_multiple_files=True)
+        
+        # NEU: Limitierung der Dateien
+        if prospekt_files and len(prospekt_files) > 10:
+            st.warning("⚠️ Bitte lade maximal 10 Prospekt-Seiten hoch. Die Liste wurde automatisch gekürzt, um das System nicht zu überlasten.")
+            prospekt_files = prospekt_files[:10]
         
         if not st.session_state.recipe_slots and st.button("🚀 Planung starten", type="primary"):
             st.session_state.recipe_slots = [{'day': i+1, 'content': None, 'locked': False, 'rating': 0} for i in range(days)]; st.rerun()
@@ -335,7 +348,8 @@ else:
                 username = pref.get('username', 'Chefkoch')
                 
                 content_prompt = []
-                p_text = f"Rolle: Food Manager. Kunde: {username}. Profil: {pref.get('erwachsene')} Erw, {pref.get('kinder_ueber3')} Kind>3. Ernährung: {','.join(pref.get('diaet',[]))}. Wünsche: {wishes}. Fixiert: {' '.join(locked)}. AUFGABE: {len(to_fill)} Rezepte. FORMAT: 1. Intro (Sprich den Kunden mit {username} an) -> '---INTRO_ENDE---'. 2. Rezepte getrennt '---TRENNER---'. 3. Titel mit Emoji. 4. Nährwerte (Kcal/E/K/F) am Ende. Antworte auf DEUTSCH."
+                # NEU: Prompt angepasst gegen Snacks und Desserts
+                p_text = f"Rolle: Food Manager. Kunde: {username}. Profil: {pref.get('erwachsene')} Erw, {pref.get('kinder_ueber3')} Kind>3. Ernährung: {','.join(pref.get('diaet',[]))}. Wünsche: {wishes}. Fixiert: {' '.join(locked)}. AUFGABE: {len(to_fill)} Rezepte. WICHTIG: Erstelle AUSSCHLIESSLICH vollwertige Hauptmahlzeiten (Mittag/Abendessen). Ignoriere Angebote für Snacks, Süßigkeiten oder Desserts (wie Kekse, Schokolade). Solche Zutaten dürfen nicht als Basis für ein Essen verwendet werden. FORMAT: 1. Intro (Sprich den Kunden mit {username} an) -> '---INTRO_ENDE---'. 2. Rezepte getrennt '---TRENNER---'. 3. Titel mit Emoji. 4. Nährwerte (Kcal/E/K/F) am Ende. Antworte auf DEUTSCH."
                 content_prompt.append(p_text)
                 if kuehlschrank_img: content_prompt.extend([Image.open(kuehlschrank_img), "Nutze Zutaten aus dem Kühlschrank!"])
                 if prospekt_files: 
@@ -440,10 +454,8 @@ else:
                         checked = st.session_state.checked_items.get(item, False)
                         
                         # MOBILE FIX: NATIVE CHECKBOX
-                        # Wir nutzen hier keine Spalten, damit die Checkbox auf dem Handy nicht rutscht.
-                        # Der Text steht direkt neben der Box.
-                        label = f"~~{item}~~" if checked else item
-                        if st.checkbox(label, value=checked, key=f"shop_{item}"):
+                        # Das CSS erledigt das sofortige Durchstreichen (kein Lag mehr!)
+                        if st.checkbox(item, value=checked, key=f"shop_{item}"):
                             st.session_state.checked_items[item] = True
                         else:
                             st.session_state.checked_items[item] = False
