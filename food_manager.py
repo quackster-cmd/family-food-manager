@@ -3,11 +3,13 @@ import google.generativeai as genai
 from PIL import Image
 import datetime
 import time
+import math
 from collections import Counter
 from supabase import create_client, Client
 
 # --- KONFIGURATION ---
-st.set_page_config(page_title="Food & Family Manager", page_icon="🥑", layout="wide")
+# NEU: initial_sidebar_state="collapsed" lässt die Seitenleiste standardmäßig zu.
+st.set_page_config(page_title="Food & Family Manager", page_icon="🥑", layout="wide", initial_sidebar_state="collapsed")
 
 # --- OPTIONEN LISTEN (KOMPLETT) ---
 OPTS_DIET = sorted(["Alles", "Vegetarisch", "Vegan", "Ohne Schwein", "Glutenfrei", "Laktosefrei", "Pescatarier", "Low Carb", "Keto"])
@@ -47,23 +49,16 @@ st.markdown("""
         padding: 2px 8px; border-radius: 10px; color: #888; margin-bottom: 5px; display: inline-block;
     }
     
-    /* EINKAUFSLISTE OPTIMIERUNG MOBILE */
     .shop-cat {
         color: #4ECDC4 !important; font-weight: 800 !important; font-size: 1.2rem;
         margin-top: 25px !important; margin-bottom: 5px !important;
         border-bottom: 1px solid #333;
     }
-    /* Kompakter Listen-Look für Checkboxen */
-    div[data-testid="stCheckbox"] {
-        margin-bottom: -15px !important; /* Zieht die Zeilen enger zusammen */
-    } 
-    /* NEU: Sofortiges Durchstreichen per CSS, wenn angehakt */
+    div[data-testid="stCheckbox"] { margin-bottom: -15px !important; } 
     div[data-testid="stCheckbox"] label input:checked + div {
-        text-decoration: line-through;
-        color: #888;
+        text-decoration: line-through; color: #888;
     }
     
-    /* TREND BOX */
     .trend-box {
         background-color: rgba(255, 107, 107, 0.1); 
         padding: 10px; border-radius: 8px; margin-bottom: 10px;
@@ -89,17 +84,49 @@ except Exception as e:
 
 # --- AUTH RESTORE ---
 if 'session' not in st.session_state: st.session_state.session = None
-if 'lang' not in st.session_state: st.session_state.lang = "Deutsch"
 
 if st.session_state.session:
     try: supabase.postgrest.auth(st.session_state.session.access_token)
     except: st.session_state.session = None
 
 # --- HELPER FUNCTIONS ---
+
+# NEU: Bilder-Grid Generator für Prospekte
+def combine_images_to_grid(uploaded_files, max_cols=4):
+    if not uploaded_files: return None
+    images = [Image.open(f) for f in uploaded_files]
+    
+    # Bilder auf einheitliche Breite bringen, um Speicher zu sparen
+    base_width = 800
+    resized = []
+    for img in images:
+        if img.mode != 'RGB': img = img.convert('RGB')
+        wpercent = (base_width / float(img.size[0]))
+        hsize = int((float(img.size[1]) * float(wpercent)))
+        resized.append(img.resize((base_width, hsize), Image.Resampling.LANCZOS))
+        
+    widths, heights = zip(*(i.size for i in resized))
+    num = len(resized)
+    cols = min(num, max_cols)
+    rows = math.ceil(num / cols)
+    
+    max_w = max(widths)
+    max_h = max(heights)
+    
+    # Neues leeres Bild erstellen
+    grid = Image.new('RGB', (cols * max_w, rows * max_h), color='white')
+    
+    for i, img in enumerate(resized):
+        x = (i % cols) * max_w
+        y = (i // cols) * max_h
+        grid.paste(img, (x, y))
+        
+    return grid
+
 def split_recipe_content(content):
     if not content: return "...", ""
     lines = content.split('\n')
-    title = lines[0].replace('#', '').strip() 
+    title = lines[0].replace('#', '').strip() if lines else "..."
     body = "\n".join(lines[1:])
     return title, body
 
@@ -107,9 +134,7 @@ def get_recipe_stats(title):
     try:
         clean_title = title.replace('#', '').strip()
         res = supabase.table("recipe_database").select("*").ilike("title", f"%{clean_title}%").execute()
-        data = res.data
-        if data:
-            return len(data), data[0].get('rating', 0)
+        if res.data: return len(res.data), res.data[0].get('rating', 0)
         return 0, 0
     except: return 0, 0
 
@@ -118,8 +143,7 @@ def get_community_trends():
         res = supabase.table("recipe_database").select("title").gte("rating", 2).execute()
         if not res.data: return []
         titles = [r['title'] for r in res.data]
-        counts = Counter(titles)
-        return counts.most_common(5)
+        return Counter(titles).most_common(5)
     except: return []
 
 def get_profile(user_id):
@@ -161,7 +185,6 @@ if not st.session_state.session:
     with tab1:
         email = st.text_input("E-Mail Adresse", key="l_em")
         password = st.text_input("Passwort", type="password", key="l_pw")
-        
         c_l1, c_l2 = st.columns([1,1])
         if c_l1.button("Einloggen", use_container_width=True):
             try:
@@ -169,22 +192,17 @@ if not st.session_state.session:
                 st.session_state.session = auth_resp.session
                 st.rerun()
             except Exception as e: st.error(f"Fehler: {e}")
-        
         if c_l2.button("Passwort vergessen?", use_container_width=True):
             if not email: st.error("Bitte E-Mail eingeben.")
             else:
-                try:
-                    supabase.auth.reset_password_for_email(email)
-                    st.success(f"Reset-Mail an {email} gesendet.")
+                try: supabase.auth.reset_password_for_email(email); st.success(f"Reset-Mail an {email} gesendet.")
                 except: st.error("Fehler beim Reset.")
 
     with tab2:
         su_email = st.text_input("E-Mail Adresse", key="s_em")
         su_pass = st.text_input("Passwort", type="password", key="s_pw")
         if st.button("Konto erstellen", use_container_width=True):
-            try:
-                supabase.auth.sign_up({"email": su_email, "password": su_pass})
-                st.success("Erfolg! Bitte E-Mail bestätigen.")
+            try: supabase.auth.sign_up({"email": su_email, "password": su_pass}); st.success("Erfolg! Bitte E-Mail bestätigen.")
             except Exception as e: st.error(f"Error: {e}")
     st.stop()
 
@@ -194,6 +212,8 @@ user_email = st.session_state.session.user.email
 
 # SIDEBAR
 with st.sidebar:
+    # NEU: Überschrift "Profil" hinzugefügt
+    st.markdown("### 👤 Profil")
     st.caption(f"Angemeldet: {user_email}")
     if st.button("Abmelden"):
         supabase.auth.sign_out(); st.session_state.session = None; st.rerun()
@@ -214,18 +234,16 @@ with st.sidebar:
     if st.session_state.curr_wk != week_key:
         st.session_state.recipe_slots = []; st.session_state.intro_text = ""; st.session_state.generated_list_draft = None; st.session_state.checked_items = {}; st.session_state.curr_wk = week_key; st.rerun()
 
-    # COMMUNITY TRENDS
-    st.divider()
-    st.subheader("🏆 Community Top 5")
+    st.divider(); st.subheader("🏆 Community Top 5")
     trends = get_community_trends()
     if trends:
         for idx, (title, count) in enumerate(trends):
             st.markdown(f"""<div class="trend-box"><span class="trend-rank">#{idx+1}</span> {title} <br><small>🔥 {count}x gekocht</small></div>""", unsafe_allow_html=True)
     else: st.caption("Noch keine Daten.")
 
-    # UPLOAD
+    # NEU: Rezept Review vor dem Speichern
     st.divider()
-    with st.expander("📚 Rezept manuell speichern"):
+    with st.expander("📚 Rezept manuell hochladen"):
         up_mode = st.radio("Eingabe:", ["Text/Link", "Foto"], horizontal=True)
         new_rec = None
         if up_mode == "Foto":
@@ -238,15 +256,28 @@ with st.sidebar:
         rating_opts = ["0 (Neu)", "1 (Selten)", "2 (Lecker)", "3 (Liebling)"]
         r_sel = st.selectbox("Bewertung:", rating_opts, index=2)
         
-        if new_rec and st.button("In Datenbank speichern"):
-            with st.spinner("Speichere..."):
+        # Schritt 1: Analysieren
+        if new_rec and st.button("🔍 Rezept analysieren"):
+            with st.spinner("Lese Rezept..."):
                 try:
                     m = genai.GenerativeModel('gemini-2.5-flash')
                     res = m.generate_content(["Formatiere Rezept: Zeile 1 Emoji+Titel. Dann Zutaten/Anleitung.", new_rec[0]] if isinstance(new_rec, list) else [new_rec[0]])
-                    t, b = split_recipe_content(res.text)
-                    save_recipe_to_db(t, res.text, rating=rating_opts.index(r_sel), source="User")
-                    st.success("Gespeichert!")
+                    st.session_state.draft_recipe = res.text
                 except Exception as e: st.error(f"Fehler: {e}")
+        
+        # Schritt 2: Bearbeiten & Final speichern
+        if 'draft_recipe' in st.session_state and st.session_state.draft_recipe:
+            st.markdown("---")
+            st.markdown("**📝 Rezept überprüfen & bearbeiten:**")
+            edited_recipe = st.text_area("Pass den Text bei Bedarf an:", value=st.session_state.draft_recipe, height=300)
+            
+            if st.button("✅ Jetzt in Datenbank speichern", type="primary"):
+                t, b = split_recipe_content(edited_recipe)
+                save_recipe_to_db(t, edited_recipe, rating=rating_opts.index(r_sel), source="User")
+                st.success("Erfolgreich gespeichert!")
+                st.session_state.draft_recipe = None # Reset
+                time.sleep(1)
+                st.rerun()
 
 # --- MAIN PAGE ---
 st.markdown(f'<div class="main-title"><span class="brand">Food & Family</span><span class="subtitle">MANAGER</span></div>', unsafe_allow_html=True)
@@ -263,7 +294,6 @@ if is_new:
         p_erw = c1.number_input("Erwachsene",1,10,2)
         p_k3 = c2.number_input("Kinder (>3)",0,10,0)
         p_ku3 = c3.number_input("Kinder (<3)",0,10,0)
-        
         p_dia = st.multiselect("Ernährung", OPTS_DIET, default=["Alles"])
         p_geraete = st.multiselect("Geräte", OPTS_DEVICES, default=["Herd", "Backofen"])
         p_ziele = st.multiselect("Ziele", OPTS_GOALS, default=["Geld sparen"])
@@ -284,37 +314,45 @@ else:
 
     st.markdown(f'<div class="section-title">Planung für {sel_week_opt}</div>', unsafe_allow_html=True)
 
-    with st.expander("⚙️ Profil / Einstellungen bearbeiten", expanded=False):
-        with st.form("edit"):
-            current_name = pref.get("username"); 
-            if not current_name: current_name = "Chefkoch"
-            p_name = st.text_input("Dein Name", current_name)
-            
-            c1,c2,c3 = st.columns(3)
-            p_erw = c1.number_input("Erwachsene",1,10,pref.get("erwachsene",2))
-            p_k3 = c2.number_input("Kinder (>3)",0,10,pref.get("kinder_ueber3",0))
-            p_ku3 = c3.number_input("Kinder (<3)",0,10,pref.get("kinder_unter3",0))
-            
-            p_dia = st.multiselect("Ernährung", OPTS_DIET, default=pref.get("diaet", ["Alles"]))
-            c_a, c_b = st.columns(2)
-            p_verm_sel = c_a.multiselect("Vermeiden", OPTS_AVOID, default=pref.get("vermeiden_select", []))
-            p_verm_txt = c_b.text_input("Sonstiges", pref.get("vermeiden_text",""))
-            
-            p_geraete = st.multiselect("Geräte", OPTS_DEVICES, default=pref.get("geraete", ["Herd"]))
-            p_ziele = st.multiselect("Ziele", OPTS_GOALS, default=pref.get("ziele", ["Geld sparen"]))
-            p_shops = st.multiselect("Supermärkte", OPTS_SHOPS, default=pref.get("shops", ["Aldi"]))
-            p_vor = st.text_area("Vorrat", pref.get("vorrat",""))
-            
-            if st.form_submit_button("Profil speichern"):
-                d = {
-                    "username": p_name, "erwachsene":p_erw,"kinder_ueber3":p_k3,"kinder_unter3":p_ku3,
-                    "diaet":p_dia,"vermeiden_select":p_verm_sel,"vermeiden_text":p_verm_txt,
-                    "geraete":p_geraete,"ziele":p_ziele,"shops":p_shops,"vorrat":p_vor
-                }
-                save_profile_db(user_id, d)
-                st.success("Gespeichert!")
-                time.sleep(0.8) # NEU: Kurze Pause, damit die Meldung lesbar ist
-                st.rerun()      # Schließt den Expander nach dem Neuladen
+    # NEU: Button-Container Logik anstatt Expander, damit es 100% schließt
+    if 'show_profile_form' not in st.session_state:
+        st.session_state.show_profile_form = False
+
+    if st.button("⚙️ Profil / Einstellungen bearbeiten"):
+        st.session_state.show_profile_form = not st.session_state.show_profile_form
+
+    if st.session_state.show_profile_form:
+        with st.container(border=True):
+            with st.form("edit"):
+                current_name = pref.get("username", "Chefkoch")
+                p_name = st.text_input("Dein Name", current_name)
+                c1,c2,c3 = st.columns(3)
+                p_erw = c1.number_input("Erwachsene",1,10,pref.get("erwachsene",2))
+                p_k3 = c2.number_input("Kinder (>3)",0,10,pref.get("kinder_ueber3",0))
+                p_ku3 = c3.number_input("Kinder (<3)",0,10,pref.get("kinder_unter3",0))
+                
+                p_dia = st.multiselect("Ernährung", OPTS_DIET, default=pref.get("diaet", ["Alles"]))
+                c_a, c_b = st.columns(2)
+                p_verm_sel = c_a.multiselect("Vermeiden", OPTS_AVOID, default=pref.get("vermeiden_select", []))
+                p_verm_txt = c_b.text_input("Sonstiges", pref.get("vermeiden_text",""))
+                
+                p_geraete = st.multiselect("Geräte", OPTS_DEVICES, default=pref.get("geraete", ["Herd"]))
+                p_ziele = st.multiselect("Ziele", OPTS_GOALS, default=pref.get("ziele", ["Geld sparen"]))
+                p_shops = st.multiselect("Supermärkte", OPTS_SHOPS, default=pref.get("shops", ["Aldi"]))
+                p_vor = st.text_area("Vorrat", pref.get("vorrat",""))
+                
+                if st.form_submit_button("Profil speichern"):
+                    d = {
+                        "username": p_name, "erwachsene":p_erw,"kinder_ueber3":p_k3,"kinder_unter3":p_ku3,
+                        "diaet":p_dia,"vermeiden_select":p_verm_sel,"vermeiden_text":p_verm_txt,
+                        "geraete":p_geraete,"ziele":p_ziele,"shops":p_shops,"vorrat":p_vor
+                    }
+                    save_profile_db(user_id, d)
+                    # Fenster ausblenden und neuladen
+                    st.session_state.show_profile_form = False 
+                    st.success("Gespeichert!")
+                    time.sleep(0.5)
+                    st.rerun()
 
     empty = len(st.session_state.recipe_slots) == 0
     with st.expander(f"📝 Planung starten", expanded=empty):
@@ -326,12 +364,9 @@ else:
         wishes = c_i2.text_area("Wünsche für die Woche")
         c_up1, c_up2 = st.columns(2)
         kuehlschrank_img = c_up1.file_uploader("📸 Kühlschrank Foto", type=["jpg","png"])
-        prospekt_files = c_up2.file_uploader("📰 Prospekte (Max 10)", type=["jpg","png"], accept_multiple_files=True)
         
-        # NEU: Limitierung der Dateien
-        if prospekt_files and len(prospekt_files) > 10:
-            st.warning("⚠️ Bitte lade maximal 10 Prospekt-Seiten hoch. Die Liste wurde automatisch gekürzt, um das System nicht zu überlasten.")
-            prospekt_files = prospekt_files[:10]
+        # NEU: Das Limit von 10 wurde entfernt
+        prospekt_files = c_up2.file_uploader("📰 Prospekte (beliebig viele)", type=["jpg","png"], accept_multiple_files=True)
         
         if not st.session_state.recipe_slots and st.button("🚀 Planung starten", type="primary"):
             st.session_state.recipe_slots = [{'day': i+1, 'content': None, 'locked': False, 'rating': 0} for i in range(days)]; st.rerun()
@@ -348,12 +383,15 @@ else:
                 username = pref.get('username', 'Chefkoch')
                 
                 content_prompt = []
-                # NEU: Prompt angepasst gegen Snacks und Desserts
-                p_text = f"Rolle: Food Manager. Kunde: {username}. Profil: {pref.get('erwachsene')} Erw, {pref.get('kinder_ueber3')} Kind>3. Ernährung: {','.join(pref.get('diaet',[]))}. Wünsche: {wishes}. Fixiert: {' '.join(locked)}. AUFGABE: {len(to_fill)} Rezepte. WICHTIG: Erstelle AUSSCHLIESSLICH vollwertige Hauptmahlzeiten (Mittag/Abendessen). Ignoriere Angebote für Snacks, Süßigkeiten oder Desserts (wie Kekse, Schokolade). Solche Zutaten dürfen nicht als Basis für ein Essen verwendet werden. FORMAT: 1. Intro (Sprich den Kunden mit {username} an) -> '---INTRO_ENDE---'. 2. Rezepte getrennt '---TRENNER---'. 3. Titel mit Emoji. 4. Nährwerte (Kcal/E/K/F) am Ende. Antworte auf DEUTSCH."
+                p_text = f"Rolle: Food Manager. Kunde: {username}. Profil: {pref.get('erwachsene')} Erw, {pref.get('kinder_ueber3')} Kind>3. Ernährung: {','.join(pref.get('diaet',[]))}. Wünsche: {wishes}. Fixiert: {' '.join(locked)}. AUFGABE: {len(to_fill)} Rezepte. WICHTIG: Erstelle AUSSCHLIESSLICH vollwertige Hauptmahlzeiten. Ignoriere Angebote für Snacks (wie Kekse, Schokolade). FORMAT: 1. Intro (Sprich den Kunden mit {username} an) -> '---INTRO_ENDE---'. 2. Rezepte getrennt '---TRENNER---'. 3. Titel mit Emoji. 4. Nährwerte (Kcal/E/K/F) am Ende. Antworte auf DEUTSCH."
                 content_prompt.append(p_text)
                 if kuehlschrank_img: content_prompt.extend([Image.open(kuehlschrank_img), "Nutze Zutaten aus dem Kühlschrank!"])
+                
+                # NEU: Nutze die Grid-Funktion, um alle Seiten zu einem Riesenbild zu verschmelzen
                 if prospekt_files: 
-                    for p in prospekt_files: content_prompt.extend([Image.open(p), "Nutze Angebote!"])
+                    grid_img = combine_images_to_grid(prospekt_files)
+                    if grid_img:
+                        content_prompt.extend([grid_img, "Nutze Angebote aus diesem gebündelten Prospekt-Katalog!"])
 
                 try:
                     m = genai.GenerativeModel('gemini-2.5-flash')
@@ -418,7 +456,7 @@ else:
             
             if len(ingredients_only) < 10: ingredients_only = "\n".join([s['content'] for s in st.session_state.recipe_slots if s['content']])
 
-            p = f"Erstelle Einkaufsliste für:\n{ingredients_only}\nVorrat ignorieren: {pref.get('vorrat','')}. Sortiere sinnvoll nach Kategorien. Nutze Emojis für Kategorien (z.B. 🥦 Obst). Kategorien als Markdown-Überschriften (###). Zutaten als Liste mit Bindestrich (-). Antworte auf DEUTSCH."
+            p = f"Erstelle Einkaufsliste für:\n{ingredients_only}\nVorrat ignorieren: {pref.get('vorrat','')}. Sortiere sinnvoll nach Kategorien. Nutze Emojis für Kategorien. Kategorien als Markdown-Überschriften (###). Zutaten als Liste mit Bindestrich (-). Antworte auf DEUTSCH."
             
             success = False
             for model_name in ['gemini-1.5-flash', 'gemini-2.5-flash']:
@@ -453,8 +491,6 @@ else:
                         item = line.replace("-", "").replace("*", "").strip()
                         checked = st.session_state.checked_items.get(item, False)
                         
-                        # MOBILE FIX: NATIVE CHECKBOX
-                        # Das CSS erledigt das sofortige Durchstreichen (kein Lag mehr!)
                         if st.checkbox(item, value=checked, key=f"shop_{item}"):
                             st.session_state.checked_items[item] = True
                         else:
