@@ -88,12 +88,28 @@ if st.session_state.session:
     except: st.session_state.session = None
 
 # --- HELPER FUNCTIONS ---
+
+# NEU: Intelligentes Ausfiltern von KI-Geplapper vor dem Rezept-Titel
 def split_recipe_content(content):
     if not content: return "...", ""
     lines = content.split('\n')
-    title = lines[0].replace('#', '').strip() if lines else "..."
-    body = "\n".join(lines[1:])
-    return title, body
+    
+    title = "Neues Rezept"
+    body_lines = []
+    found_title = False
+    
+    for line in lines:
+        if not found_title and line.strip().startswith('#'):
+            title = line.replace('#', '').strip()
+            found_title = True
+        elif found_title:
+            body_lines.append(line)
+            
+    if not found_title:
+        title = lines[0].strip() if lines else "..."
+        body_lines = lines[1:] if len(lines) > 1 else []
+        
+    return title, "\n".join(body_lines).strip()
 
 def get_recipe_stats(title):
     try:
@@ -247,221 +263,278 @@ db_profile = get_profile(user_id)
 pref = db_profile.get("preferences", {})
 is_new = not pref
 
-if is_new:
-    st.info("👋 Willkommen! Richten wir dein Profil ein.")
-    with st.form("setup"):
-        p_name = st.text_input("Dein Name (oder 'Chefkoch')", "Chefkoch")
-        c1,c2,c3 = st.columns(3)
-        p_erw = c1.number_input("Erwachsene",1,10,2)
-        p_k3 = c2.number_input("Kinder (>3)",0,10,0)
-        p_ku3 = c3.number_input("Kinder (<3)",0,10,0)
-        p_dia = st.multiselect("Ernährung", OPTS_DIET, default=["Alles"])
-        p_geraete = st.multiselect("Geräte", OPTS_DEVICES, default=["Herd", "Backofen"])
-        p_ziele = st.multiselect("Ziele", OPTS_GOALS, default=["Geld sparen"])
-        p_shops = st.multiselect("Supermärkte", OPTS_SHOPS, default=["Aldi", "Rewe"])
-        p_vor = st.text_area("Vorrat", "Nudeln, Reis, Salz, Öl")
+# NEU: Tabs für die Hauptnavigation
+tab_week, tab_community = st.tabs(["📅 Deine Woche", "🌍 Community & Entdecken"])
+
+with tab_week:
+    if is_new:
+        st.info("👋 Willkommen! Richten wir dein Profil ein.")
+        with st.form("setup"):
+            p_name = st.text_input("Dein Name (oder 'Chefkoch')", "Chefkoch")
+            c1,c2,c3 = st.columns(3)
+            p_erw = c1.number_input("Erwachsene",1,10,2)
+            p_k3 = c2.number_input("Kinder (>3)",0,10,1)
+            p_ku3 = c3.number_input("Kinder (<3)",0,10,1)
+            p_dia = st.multiselect("Ernährung", OPTS_DIET, default=["Alles"])
+            p_geraete = st.multiselect("Geräte", OPTS_DEVICES, default=["Herd", "Backofen"])
+            p_ziele = st.multiselect("Ziele", OPTS_GOALS, default=["Geld sparen"])
+            p_shops = st.multiselect("Supermärkte", OPTS_SHOPS, default=["Aldi", "Rewe"])
+            p_vor = st.text_area("Vorrat", "Nudeln, Reis, Salz, Öl")
+            
+            if st.form_submit_button("Profil speichern"):
+                d = {"username": p_name, "erwachsene":p_erw,"kinder_ueber3":p_k3,"kinder_unter3":p_ku3,"diaet":p_dia,"geraete":p_geraete,"ziele":p_ziele,"shops":p_shops,"vorrat":p_vor, "bookmarks": []}
+                save_profile_db(user_id, d); st.rerun()
+    else:
+        db_plan = get_week_plan_db(user_id, week_key)
+        if db_plan and not st.session_state.recipe_slots:
+            data = db_plan.get('plan_data', {})
+            st.session_state.recipe_slots = data.get('recipes', [])
+            st.session_state.intro_text = data.get('intro', "")
+            st.session_state.generated_list_draft = data.get('shopping_list', "")
+            st.session_state.days_slider_val = len(st.session_state.recipe_slots)
+
+        st.markdown(f'<div class="section-title">Planung für {sel_week_opt}</div>', unsafe_allow_html=True)
+
+        if 'show_profile_form' not in st.session_state: st.session_state.show_profile_form = False
+
+        if st.button("⚙️ Profil / Einstellungen bearbeiten"):
+            st.session_state.show_profile_form = not st.session_state.show_profile_form
+
+        if st.session_state.show_profile_form:
+            with st.container(border=True):
+                with st.form("edit"):
+                    current_name = pref.get("username", "Chefkoch")
+                    p_name = st.text_input("Dein Name", current_name)
+                    c1,c2,c3 = st.columns(3)
+                    p_erw = c1.number_input("Erwachsene",1,10,pref.get("erwachsene",2))
+                    p_k3 = c2.number_input("Kinder (>3)",0,10,pref.get("kinder_ueber3",1))
+                    p_ku3 = c3.number_input("Kinder (<3)",0,10,pref.get("kinder_unter3",1))
+                    
+                    p_dia = st.multiselect("Ernährung", OPTS_DIET, default=pref.get("diaet", ["Alles"]))
+                    c_a, c_b = st.columns(2)
+                    p_verm_sel = c_a.multiselect("Vermeiden", OPTS_AVOID, default=pref.get("vermeiden_select", []))
+                    p_verm_txt = c_b.text_input("Sonstiges", pref.get("vermeiden_text",""))
+                    
+                    p_geraete = st.multiselect("Geräte", OPTS_DEVICES, default=pref.get("geraete", ["Herd"]))
+                    p_ziele = st.multiselect("Ziele", OPTS_GOALS, default=pref.get("ziele", ["Geld sparen"]))
+                    p_shops = st.multiselect("Supermärkte", OPTS_SHOPS, default=pref.get("shops", ["Aldi"]))
+                    p_vor = st.text_area("Vorrat", pref.get("vorrat",""))
+                    
+                    if st.form_submit_button("Profil speichern"):
+                        # Erhalte bestehende Bookmarks
+                        current_bookmarks = pref.get("bookmarks", [])
+                        d = {
+                            "username": p_name, "erwachsene":p_erw,"kinder_ueber3":p_k3,"kinder_unter3":p_ku3,
+                            "diaet":p_dia,"vermeiden_select":p_verm_sel,"vermeiden_text":p_verm_txt,
+                            "geraete":p_geraete,"ziele":p_ziele,"shops":p_shops,"vorrat":p_vor,
+                            "bookmarks": current_bookmarks
+                        }
+                        save_profile_db(user_id, d)
+                        st.session_state.show_profile_form = False 
+                        st.success("Gespeichert!")
+                        time.sleep(0.5); st.rerun()
+
+        empty = len(st.session_state.recipe_slots) == 0
+        with st.expander(f"📝 Planung starten", expanded=empty):
+            c_i1, c_i2 = st.columns(2)
+            d_def = st.session_state.get('days_slider_val', 4)
+            days = c_i1.slider("Anzahl Tage", 1, 7, d_def, key="ds")
+            if days != d_def: st.session_state.days_slider_val = days
+            mins = c_i1.slider("Zeit (Min)", 0, 120, 30, step=5)
+            wishes = c_i2.text_area("Wünsche für die Woche")
+            c_up1, c_up2 = st.columns(2)
+            kuehlschrank_img = c_up1.file_uploader("📸 Kühlschrank Foto", type=["jpg","png"])
+            prospekt_files = c_up2.file_uploader("📰 Prospekte", type=["jpg","png"], accept_multiple_files=True)
+            
+            if not st.session_state.recipe_slots and st.button("🚀 Planung starten", type="primary"):
+                st.session_state.recipe_slots = [{'day': i+1, 'content': None, 'locked': False, 'rating': 0} for i in range(days)]; st.rerun()
+
+        if st.session_state.recipe_slots:
+            slots = st.session_state.recipe_slots
+            if len(slots) < days:
+                 for i in range(len(slots), days): slots.append({'day': i+1, 'content': None, 'locked': False, 'rating': 0})
+            
+            to_fill = [i for i, s in enumerate(slots) if s['content'] is None]
+            if to_fill:
+                with st.spinner("Der digitale Koch brutzelt..."):
+                    locked = [s['content'] for s in slots if s['locked'] and s['content']]
+                    username = pref.get('username', 'Chefkoch')
+                    
+                    # NEU: Bookmarks in den Prompt integrieren
+                    user_bookmarks = pref.get("bookmarks", [])
+                    bookmark_prompt = f" Der Nutzer hat folgende Lieblingsrezepte gemerkt: {', '.join(user_bookmarks)}. Baue diese bevorzugt ein, wenn es sinnvoll ist." if user_bookmarks else ""
+                    
+                    content_prompt = []
+                    p_text = f"Rolle: Food Manager. Kunde: {username}. Profil: {pref.get('erwachsene')} Erw, {pref.get('kinder_ueber3')} Kind>3. Ernährung: {','.join(pref.get('diaet',[]))}. Wünsche: {wishes}.{bookmark_prompt} Fixiert: {' '.join(locked)}. AUFGABE: {len(to_fill)} Rezepte. WICHTIG: Erstelle AUSSCHLIESSLICH vollwertige Hauptmahlzeiten. REGELN FÜR REZEPTE: 1. Titel MÜSSEN absolut neutral sein (z.B. '🍝 Spaghetti Bolognese'). Verwende NIEMALS den Namen des Nutzers im Rezepttitel! 2. Intro (Sprich den Kunden an) -> '---INTRO_ENDE---'. 3. Rezepte getrennt '---TRENNER---'. 4. Titel mit Emoji. 5. Nährwerte am Ende. Antworte auf DEUTSCH."
+                    content_prompt.append(p_text)
+                    
+                    if kuehlschrank_img: 
+                        k_img = Image.open(kuehlschrank_img)
+                        k_img.thumbnail((800, 800))
+                        content_prompt.extend([k_img, "Nutze Zutaten aus dem Kühlschrank!"])
+                    
+                    if prospekt_files: 
+                        for p in prospekt_files:
+                            p_img = Image.open(p)
+                            if p_img.mode != 'RGB': p_img = p_img.convert('RGB')
+                            p_img.thumbnail((1000, 1000))
+                            content_prompt.append(p_img)
+                        content_prompt.append("Lese diese Prospektseiten und nutze die Angebote für die Planung!")
+
+                    try:
+                        m = genai.GenerativeModel('gemini-2.5-flash')
+                        res = m.generate_content(content_prompt)
+                        raw = res.text
+                        if "---INTRO_ENDE---" in raw: ip, rp = raw.split("---INTRO_ENDE---"); st.session_state.intro_text = ip.strip()
+                        else: rp = raw
+                        parts = [p.strip() for p in rp.split("---TRENNER---") if len(p.strip()) > 20]
+                        idx = 0
+                        for p in parts:
+                            if idx < len(to_fill): slots[to_fill[idx]]['content'] = p; idx += 1
+                        save_week_plan_db(user_id, week_key, {"recipes": slots, "intro": st.session_state.intro_text, "shopping_list": st.session_state.get('generated_list_draft')}); st.rerun()
+                    except Exception: st.error("Fehler bei KI. Bitte neu versuchen.")
+
+        if st.session_state.recipe_slots:
+            if st.session_state.intro_text: st.markdown(f'<div class="intro-box">{st.session_state.intro_text}</div>', unsafe_allow_html=True)
+            
+            for i, s in enumerate(st.session_state.recipe_slots[:days]):
+                cnt = s.get('content'); tit, bod = split_recipe_content(cnt) if cnt else ("...", "")
+                hist_count, hist_rating = get_recipe_stats(tit)
+                
+                with st.container(border=True):
+                    if hist_count > 0: st.markdown(f'<span class="history-badge">Bereits {hist_count}x gekocht | Note: {"⭐"*hist_rating}</span>', unsafe_allow_html=True)
+                    else: st.markdown(f'<span class="history-badge">✨ Neues Rezept</span>', unsafe_allow_html=True)
+
+                    c1, c2 = st.columns([0.7, 0.3])
+                    lck = s.get('locked', False); rat = s.get('rating', 0)
+                    with c1:
+                        st.markdown(f"<div class='recipe-header'>{tit}</div>", unsafe_allow_html=True)
+                        r_opts = ["Bewerten (Neu)", "1 Stern (Selten)", "2 Sterne (Lecker)", "3 Sterne (Liebling)"]
+                        new_r = st.selectbox("Note:", r_opts, index=min(3, rat), key=f"rr_{i}", label_visibility="collapsed")
+                        if r_opts.index(new_r) != rat:
+                            new_val = r_opts.index(new_r)
+                            st.session_state.recipe_slots[i]['rating'] = new_val
+                            save_week_plan_db(user_id, week_key, {"recipes": st.session_state.recipe_slots, "intro": st.session_state.intro_text, "shopping_list": st.session_state.get('generated_list_draft')})
+                            if new_val > 0: save_recipe_to_db(tit, cnt, rating=new_val, source="AI-Plan")
+                            st.rerun()
+                    with c2:
+                        btn_txt = "🔒 Fixiert" if lck else "🔓 Offen"
+                        if st.button(btn_txt, key=f"lock_{i}", use_container_width=True):
+                            st.session_state.recipe_slots[i]['locked'] = not lck
+                            save_week_plan_db(user_id, week_key, {"recipes": st.session_state.recipe_slots, "intro": st.session_state.intro_text, "shopping_list": st.session_state.get('generated_list_draft')}); st.rerun()
+                    if cnt:
+                        with st.expander("📖 Details"): st.markdown(bod)
+
+            st.divider(); c1, c2 = st.columns(2)
+            if c1.button("🎲 Offene neu würfeln", use_container_width=True):
+                for s in st.session_state.recipe_slots:
+                    if not s['locked']: s['content'] = None
+                st.rerun()
+
+            if c2.button("🛒 Einkaufsliste erstellen", type="primary", use_container_width=True):
+                status = st.status("Filtere Zutaten & sortiere...", expanded=True)
+                for s in st.session_state.recipe_slots: s['locked'] = True
+                save_week_plan_db(user_id, week_key, {"recipes": st.session_state.recipe_slots, "intro": st.session_state.intro_text, "shopping_list": st.session_state.get('generated_list_draft')})
+                
+                ingredients_only = ""
+                for s in st.session_state.recipe_slots:
+                    if s['content']:
+                        for line in s['content'].split('\n'):
+                            if line.strip().startswith(('-','*')): ingredients_only += line.strip() + "\n"
+                
+                if len(ingredients_only) < 10: ingredients_only = "\n".join([s['content'] for s in st.session_state.recipe_slots if s['content']])
+
+                p = f"Erstelle Einkaufsliste für:\n{ingredients_only}\nVorrat ignorieren: {pref.get('vorrat','')}. Sortiere sinnvoll nach Kategorien. Nutze Emojis für Kategorien. Kategorien als Markdown-Überschriften (###). Zutaten als Liste mit Bindestrich (-). Antworte auf DEUTSCH."
+                
+                success = False
+                for model_name in ['gemini-1.5-flash', 'gemini-2.5-flash']:
+                    if success: break
+                    try:
+                        ml = genai.GenerativeModel(model_name)
+                        rl = ml.generate_content(p)
+                        st.session_state.generated_list_draft = rl.text
+                        success = True
+                    except: time.sleep(1)
+
+                if success:
+                    save_week_plan_db(user_id, week_key, {"recipes": st.session_state.recipe_slots, "intro": st.session_state.intro_text, "shopping_list": st.session_state.generated_list_draft})
+                    status.update(label="Fertig!", state="complete", expanded=False); time.sleep(0.5); st.rerun()
+                else:
+                    status.update(label="Fehler (Google überlastet)", state="error")
+                    st.error("Konnte Liste nicht erstellen.")
+
+            if st.session_state.get('generated_list_draft'):
+                st.divider(); st.markdown('<div class="section-title">🛒 Deine Einkaufsliste</div>', unsafe_allow_html=True)
+                sm = st.toggle("🛍️ Einkaufs-Modus starten (Abhaken)")
+                if sm:
+                    st.info("💡 Tipp: Erledigtes wird durchgestrichen.")
+                    lines = st.session_state.generated_list_draft.split('\n')
+                    for line in lines:
+                        line = line.strip()
+                        if not line: continue
+                        if line.startswith("###") or (line.startswith("**") and not line.startswith("-")):
+                            clean_header = line.replace("#", "").replace("*", "").strip()
+                            st.markdown(f"<div class='shop-cat'>{clean_header}</div>", unsafe_allow_html=True)
+                        elif line.startswith("-") or line.startswith("*"):
+                            item = line.replace("-", "").replace("*", "").strip()
+                            checked = st.session_state.checked_items.get(item, False)
+                            
+                            if st.checkbox(item, value=checked, key=f"shop_{item}"):
+                                st.session_state.checked_items[item] = True
+                            else:
+                                st.session_state.checked_items[item] = False
+                        else: st.write(line)
+                else: 
+                    st.markdown(st.session_state.generated_list_draft)
+                
+                if st.button("🗑️ Woche löschen"):
+                    supabase.table("weekly_plans").delete().eq("user_id", user_id).eq("week_key", week_key).execute()
+                    st.session_state.recipe_slots=[]; st.session_state.generated_list_draft=None; st.rerun()
+
+# NEU: Der Community-Tab
+with tab_community:
+    st.markdown('<div class="section-title">🌍 Entdecke neue Rezepte</div>', unsafe_allow_html=True)
+    
+    try:
+        # Holen aller Rezepte, sortiert nach den besten Bewertungen
+        res = supabase.table("recipe_database").select("*").order("rating", desc=True).execute()
+        all_recipes = res.data
+    except Exception as e:
+        all_recipes = []
+        st.error(f"Datenbankfehler: {e}")
         
-        if st.form_submit_button("Profil speichern"):
-            d = {"username": p_name, "erwachsene":p_erw,"kinder_ueber3":p_k3,"kinder_unter3":p_ku3,"diaet":p_dia,"geraete":p_geraete,"ziele":p_ziele,"shops":p_shops,"vorrat":p_vor}
-            save_profile_db(user_id, d); st.rerun()
-else:
-    db_plan = get_week_plan_db(user_id, week_key)
-    if db_plan and not st.session_state.recipe_slots:
-        data = db_plan.get('plan_data', {})
-        st.session_state.recipe_slots = data.get('recipes', [])
-        st.session_state.intro_text = data.get('intro', "")
-        st.session_state.generated_list_draft = data.get('shopping_list', "")
-        st.session_state.days_slider_val = len(st.session_state.recipe_slots)
-
-    st.markdown(f'<div class="section-title">Planung für {sel_week_opt}</div>', unsafe_allow_html=True)
-
-    if 'show_profile_form' not in st.session_state: st.session_state.show_profile_form = False
-
-    if st.button("⚙️ Profil / Einstellungen bearbeiten"):
-        st.session_state.show_profile_form = not st.session_state.show_profile_form
-
-    if st.session_state.show_profile_form:
-        with st.container(border=True):
-            with st.form("edit"):
-                current_name = pref.get("username", "Chefkoch")
-                p_name = st.text_input("Dein Name", current_name)
-                c1,c2,c3 = st.columns(3)
-                p_erw = c1.number_input("Erwachsene",1,10,pref.get("erwachsene",2))
-                p_k3 = c2.number_input("Kinder (>3)",0,10,pref.get("kinder_ueber3",0))
-                p_ku3 = c3.number_input("Kinder (<3)",0,10,pref.get("kinder_unter3",0))
-                
-                p_dia = st.multiselect("Ernährung", OPTS_DIET, default=pref.get("diaet", ["Alles"]))
-                c_a, c_b = st.columns(2)
-                p_verm_sel = c_a.multiselect("Vermeiden", OPTS_AVOID, default=pref.get("vermeiden_select", []))
-                p_verm_txt = c_b.text_input("Sonstiges", pref.get("vermeiden_text",""))
-                
-                p_geraete = st.multiselect("Geräte", OPTS_DEVICES, default=pref.get("geraete", ["Herd"]))
-                p_ziele = st.multiselect("Ziele", OPTS_GOALS, default=pref.get("ziele", ["Geld sparen"]))
-                p_shops = st.multiselect("Supermärkte", OPTS_SHOPS, default=pref.get("shops", ["Aldi"]))
-                p_vor = st.text_area("Vorrat", pref.get("vorrat",""))
-                
-                if st.form_submit_button("Profil speichern"):
-                    d = {
-                        "username": p_name, "erwachsene":p_erw,"kinder_ueber3":p_k3,"kinder_unter3":p_ku3,
-                        "diaet":p_dia,"vermeiden_select":p_verm_sel,"vermeiden_text":p_verm_txt,
-                        "geraete":p_geraete,"ziele":p_ziele,"shops":p_shops,"vorrat":p_vor
-                    }
-                    save_profile_db(user_id, d)
-                    st.session_state.show_profile_form = False 
-                    st.success("Gespeichert!")
-                    time.sleep(0.5); st.rerun()
-
-    empty = len(st.session_state.recipe_slots) == 0
-    with st.expander(f"📝 Planung starten", expanded=empty):
-        c_i1, c_i2 = st.columns(2)
-        d_def = st.session_state.get('days_slider_val', 4)
-        days = c_i1.slider("Anzahl Tage", 1, 7, d_def, key="ds")
-        if days != d_def: st.session_state.days_slider_val = days
-        mins = c_i1.slider("Zeit (Min)", 0, 120, 30, step=5)
-        wishes = c_i2.text_area("Wünsche für die Woche")
-        c_up1, c_up2 = st.columns(2)
-        kuehlschrank_img = c_up1.file_uploader("📸 Kühlschrank Foto", type=["jpg","png"])
-        prospekt_files = c_up2.file_uploader("📰 Prospekte (beliebig viele)", type=["jpg","png"], accept_multiple_files=True)
+    if not all_recipes:
+        st.info("Die Rezept-Datenbank ist noch leer. Speichere deine ersten eigenen Rezepte!")
+    else:
+        user_bookmarks = pref.get("bookmarks", [])
         
-        if not st.session_state.recipe_slots and st.button("🚀 Planung starten", type="primary"):
-            st.session_state.recipe_slots = [{'day': i+1, 'content': None, 'locked': False, 'rating': 0} for i in range(days)]; st.rerun()
-
-    if st.session_state.recipe_slots:
-        slots = st.session_state.recipe_slots
-        if len(slots) < days:
-             for i in range(len(slots), days): slots.append({'day': i+1, 'content': None, 'locked': False, 'rating': 0})
-        
-        to_fill = [i for i, s in enumerate(slots) if s['content'] is None]
-        if to_fill:
-            with st.spinner("Der digitale Koch brutzelt... Lese Bilder & analysiere Angebote..."):
-                locked = [s['content'] for s in slots if s['locked'] and s['content']]
-                username = pref.get('username', 'Chefkoch')
-                
-                content_prompt = []
-                # NEU: Prompt mit strikter Regel für neutrale Titel
-                p_text = f"Rolle: Food Manager. Kunde: {username}. Profil: {pref.get('erwachsene')} Erw, {pref.get('kinder_ueber3')} Kind>3. Ernährung: {','.join(pref.get('diaet',[]))}. Wünsche: {wishes}. Fixiert: {' '.join(locked)}. AUFGABE: {len(to_fill)} Rezepte. WICHTIG: Erstelle AUSSCHLIESSLICH vollwertige Hauptmahlzeiten. Ignoriere Snacks. REGELN FÜR REZEPTE: 1. Titel MÜSSEN absolut neutral und allgemein gültig sein (z.B. '🍝 Spaghetti Bolognese'). Verwende NIEMALS den Namen des Nutzers im Rezepttitel! 2. Intro (Sprich den Kunden mit {username} an) -> '---INTRO_ENDE---'. 3. Rezepte getrennt '---TRENNER---'. 4. Titel mit Emoji. 5. Nährwerte (Kcal/E/K/F) am Ende. Antworte auf DEUTSCH."
-                content_prompt.append(p_text)
-                
-                if kuehlschrank_img: 
-                    k_img = Image.open(kuehlschrank_img)
-                    k_img.thumbnail((800, 800)) # Komprimierung
-                    content_prompt.extend([k_img, "Nutze Zutaten aus dem Kühlschrank!"])
-                
-                # NEU: Effiziente Einzelkomprimierung aller Prospekte statt Fehleranfälligem Riesen-Grid
-                if prospekt_files: 
-                    for p in prospekt_files:
-                        p_img = Image.open(p)
-                        if p_img.mode != 'RGB': p_img = p_img.convert('RGB')
-                        p_img.thumbnail((1000, 1000)) # Schrumpft das Bild auf max. 1000px Kantenlänge, behält Proportionen
-                        content_prompt.append(p_img)
-                    content_prompt.append("Lese diese komprimierten Prospektseiten und nutze die Angebote für die Rezeptplanung!")
-
-                try:
-                    m = genai.GenerativeModel('gemini-2.5-flash')
-                    res = m.generate_content(content_prompt)
-                    raw = res.text
-                    if "---INTRO_ENDE---" in raw: ip, rp = raw.split("---INTRO_ENDE---"); st.session_state.intro_text = ip.strip()
-                    else: rp = raw
-                    parts = [p.strip() for p in rp.split("---TRENNER---") if len(p.strip()) > 20]
-                    idx = 0
-                    for p in parts:
-                        if idx < len(to_fill): slots[to_fill[idx]]['content'] = p; idx += 1
-                    save_week_plan_db(user_id, week_key, {"recipes": slots, "intro": st.session_state.intro_text, "shopping_list": st.session_state.get('generated_list_draft')}); st.rerun()
-                except Exception: st.error("Fehler bei KI. Bitte neu versuchen.")
-
-    if st.session_state.recipe_slots:
-        if st.session_state.intro_text: st.markdown(f'<div class="intro-box">{st.session_state.intro_text}</div>', unsafe_allow_html=True)
-        
-        for i, s in enumerate(st.session_state.recipe_slots[:days]):
-            cnt = s.get('content'); tit, bod = split_recipe_content(cnt) if cnt else ("...", "")
-            hist_count, hist_rating = get_recipe_stats(tit)
+        for r in all_recipes:
+            r_id = r.get('id')
+            r_title = r.get('title', 'Unbekannt')
+            r_content = r.get('content', '')
+            r_rating = r.get('rating', 0)
             
             with st.container(border=True):
-                if hist_count > 0: st.markdown(f'<span class="history-badge">Bereits {hist_count}x gekocht | Note: {"⭐"*hist_rating}</span>', unsafe_allow_html=True)
-                else: st.markdown(f'<span class="history-badge">✨ Neues Rezept</span>', unsafe_allow_html=True)
-
-                c1, c2 = st.columns([0.7, 0.3])
-                lck = s.get('locked', False); rat = s.get('rating', 0)
+                c1, c2 = st.columns([0.8, 0.2])
                 with c1:
-                    st.markdown(f"<div class='recipe-header'>{tit}</div>", unsafe_allow_html=True)
-                    r_opts = ["Bewerten (Neu)", "1 Stern (Selten)", "2 Sterne (Lecker)", "3 Sterne (Liebling)"]
-                    new_r = st.selectbox("Note:", r_opts, index=min(3, rat), key=f"rr_{i}", label_visibility="collapsed")
-                    if r_opts.index(new_r) != rat:
-                        new_val = r_opts.index(new_r)
-                        st.session_state.recipe_slots[i]['rating'] = new_val
-                        save_week_plan_db(user_id, week_key, {"recipes": st.session_state.recipe_slots, "intro": st.session_state.intro_text, "shopping_list": st.session_state.get('generated_list_draft')})
-                        if new_val > 0: save_recipe_to_db(tit, cnt, rating=new_val, source="AI-Plan")
-                        st.rerun()
+                    # Zeigt Titel und Sternebewertung an
+                    st.markdown(f"<div class='recipe-header'>{r_title} {'⭐'*r_rating}</div>", unsafe_allow_html=True)
                 with c2:
-                    btn_txt = "🔒 Fixiert" if lck else "🔓 Offen"
-                    if st.button(btn_txt, key=f"lock_{i}", use_container_width=True):
-                        st.session_state.recipe_slots[i]['locked'] = not lck
-                        save_week_plan_db(user_id, week_key, {"recipes": st.session_state.recipe_slots, "intro": st.session_state.intro_text, "shopping_list": st.session_state.get('generated_list_draft')}); st.rerun()
-                if cnt:
-                    with st.expander("📖 Details"): st.markdown(bod)
-
-        st.divider(); c1, c2 = st.columns(2)
-        if c1.button("🎲 Offene neu würfeln", use_container_width=True):
-            for s in st.session_state.recipe_slots:
-                if not s['locked']: s['content'] = None
-            st.rerun()
-
-        if c2.button("🛒 Einkaufsliste erstellen", type="primary", use_container_width=True):
-            status = st.status("Filtere Zutaten & sortiere...", expanded=True)
-            for s in st.session_state.recipe_slots: s['locked'] = True
-            save_week_plan_db(user_id, week_key, {"recipes": st.session_state.recipe_slots, "intro": st.session_state.intro_text, "shopping_list": st.session_state.get('generated_list_draft')})
-            
-            ingredients_only = ""
-            for s in st.session_state.recipe_slots:
-                if s['content']:
-                    for line in s['content'].split('\n'):
-                        if line.strip().startswith(('-','*')): ingredients_only += line.strip() + "\n"
-            
-            if len(ingredients_only) < 10: ingredients_only = "\n".join([s['content'] for s in st.session_state.recipe_slots if s['content']])
-
-            p = f"Erstelle Einkaufsliste für:\n{ingredients_only}\nVorrat ignorieren: {pref.get('vorrat','')}. Sortiere sinnvoll nach Kategorien. Nutze Emojis für Kategorien. Kategorien als Markdown-Überschriften (###). Zutaten als Liste mit Bindestrich (-). Antworte auf DEUTSCH."
-            
-            success = False
-            for model_name in ['gemini-1.5-flash', 'gemini-2.5-flash']:
-                if success: break
-                try:
-                    ml = genai.GenerativeModel(model_name)
-                    rl = ml.generate_content(p)
-                    st.session_state.generated_list_draft = rl.text
-                    success = True
-                except: time.sleep(1)
-
-            if success:
-                save_week_plan_db(user_id, week_key, {"recipes": st.session_state.recipe_slots, "intro": st.session_state.intro_text, "shopping_list": st.session_state.generated_list_draft})
-                status.update(label="Fertig!", state="complete", expanded=False); time.sleep(0.5); st.rerun()
-            else:
-                status.update(label="Fehler (Google überlastet)", state="error")
-                st.error("Konnte Liste nicht erstellen.")
-
-        if st.session_state.get('generated_list_draft'):
-            st.divider(); st.markdown('<div class="section-title">🛒 Deine Einkaufsliste</div>', unsafe_allow_html=True)
-            sm = st.toggle("🛍️ Einkaufs-Modus starten (Abhaken)")
-            if sm:
-                st.info("💡 Tipp: Erledigtes wird durchgestrichen.")
-                lines = st.session_state.generated_list_draft.split('\n')
-                for line in lines:
-                    line = line.strip()
-                    if not line: continue
-                    if line.startswith("###") or (line.startswith("**") and not line.startswith("-")):
-                        clean_header = line.replace("#", "").replace("*", "").strip()
-                        st.markdown(f"<div class='shop-cat'>{clean_header}</div>", unsafe_allow_html=True)
-                    elif line.startswith("-") or line.startswith("*"):
-                        item = line.replace("-", "").replace("*", "").strip()
-                        checked = st.session_state.checked_items.get(item, False)
+                    # Vormerken-Logik (Bookmark)
+                    is_bm = r_title in user_bookmarks
+                    btn_label = "✅ Gemerkt" if is_bm else "🔖 Vormerken"
+                    
+                    if st.button(btn_label, key=f"bm_btn_{r_id}", use_container_width=True):
+                        if is_bm: 
+                            user_bookmarks.remove(r_title)
+                        else: 
+                            user_bookmarks.append(r_title)
                         
-                        if st.checkbox(item, value=checked, key=f"shop_{item}"):
-                            st.session_state.checked_items[item] = True
-                        else:
-                            st.session_state.checked_items[item] = False
-                    else: st.write(line)
-            else: 
-                st.markdown(st.session_state.generated_list_draft)
-            
-            if st.button("🗑️ Woche löschen"):
-                supabase.table("weekly_plans").delete().eq("user_id", user_id).eq("week_key", week_key).execute()
-                st.session_state.recipe_slots=[]; st.session_state.generated_list_draft=None; st.rerun()
+                        pref['bookmarks'] = user_bookmarks
+                        save_profile_db(user_id, pref)
+                        st.rerun()
+                        
+                with st.expander("📖 Rezept ansehen"):
+                    # Inhalt sauber vom Titel trennen und anzeigen
+                    _, body = split_recipe_content(r_content)
+                    st.markdown(body)
